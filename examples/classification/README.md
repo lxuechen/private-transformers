@@ -50,10 +50,10 @@ Additional arguments:
   , `bert-large-uncased`, `distilroberta-base`, `roberta-base`, `roberta-large`
 - `--few_shot_type`: Whether to use the generic prompt formatter described in Section 3.2 of our paper. `prompt` is to
   use, `finetune` is to not use.
-- `ghost_clipping`: Whether to use ghost clipping for memory saving; one of `yes`, `no`
+- `--ghost_clipping`: Whether to use ghost clipping for memory saving; one of `yes`, `no`
   Note keeping other training hyperparameter (e.g., number of training epochs, clipping norm, learning rate) the same,
   things should still work
-- `data_dir`: Path to where data is stored; if data is obtained via the procedure described above, just stick to the
+- `--data_dir`: Path to where data is stored; if data is obtained via the procedure described above, just stick to the
   defaults.
 
 Training on the larger datasets for even more epochs should bring further performance gains.
