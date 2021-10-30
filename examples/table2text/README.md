@@ -22,9 +22,9 @@ Use the `run.sh` script in the folder.
 
 Supply at least 3 arguments:
 
-- `output_dir`: path to a folder where results will be written
-- `data_folder`: path to the unzipped data folder
-- `task_mode`: name of task; one of `e2e` and `dart`
+- `--output_dir`: path to a folder where results will be written
+- `--data_folder`: path to the unzipped data folder
+- `--task_mode`: name of task; one of `e2e` and `dart`
 
 For instance, to fine-tune GPT-2 on E2E at ε = 8, run the following from the `examples` folder of this repo:
 
