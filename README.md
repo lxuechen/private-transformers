@@ -27,6 +27,13 @@ Make sure you have python>=3.8; run the following command:
 pip install git+https://github.com/lxuechen/private-transformers.git
 ```
 
+To check the package is installed properly, be sure to run the test suite (requires pytest and a GPU) via the following
+command:
+
+```bash
+pytest -s tests
+```
+
 ## Usage
 
 ### Basic usage
@@ -127,7 +134,8 @@ should be sufficient to get things started. Detailed instructions are in the rea
 
 Not all models in the Hugging Face library are supported. The main additional work here is to
 
-1. support per-example gradients for bespoke modules (e.g., [T5LayerNorm](https://huggingface.co/transformers/_modules/transformers/modeling_t5.html)), and
+1. support per-example gradients for bespoke modules
+   (e.g., [T5LayerNorm](https://huggingface.co/transformers/_modules/transformers/modeling_t5.html)), and
 2. ensure `position_ids` are repeated.
 
 We plan to support more models in the future if there's such a need. Feel free to open an issue if you may want to try
