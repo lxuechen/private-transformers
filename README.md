@@ -141,6 +141,10 @@ Not all models in the Hugging Face library are supported. The main additional wo
 We plan to support more models in the future if there's such a need. Feel free to open an issue if you may want to try
 out specific models that aren't in the current list.
 
+## FAQ
+
+I wrote some answers to potential questions [here](https://github.com/lxuechen/private-transformers/blob/main/FAQ.md).
+
 ## Acknowledgements
 
 It would have been impossible to develop this codebase without cool past works and existing codebases. We roughly follow
