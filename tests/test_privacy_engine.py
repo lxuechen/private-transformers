@@ -39,7 +39,7 @@ def _zip(*args, ):
     return zip(*args)
 
 
-def _make_gpt2_data(num_micro_batches=4, micro_batch_size=4, seq_len=128):
+def _make_generation_data(num_micro_batches=4, micro_batch_size=4, seq_len=128):
     """Make a batch of plain sequences.
 
     Tuple of multiple micro batches.
@@ -50,7 +50,7 @@ def _make_gpt2_data(num_micro_batches=4, micro_batch_size=4, seq_len=128):
     )
 
 
-def _make_bert_data(num_micro_batches=2, micro_batch_size=4, seq_len=128, num_labels=2):
+def _make_classification_data(num_micro_batches=2, micro_batch_size=4, seq_len=128, num_labels=2):
     return tuple(
         dict(
             input_ids=torch.randint(low=1, high=100, size=(micro_batch_size, seq_len)),
@@ -66,9 +66,12 @@ def _prepare_inputs(batch: dict):
 
 @pytest.mark.parametrize(
     'ghost_clipping,model_name_or_path',
-    itertools.product([True, False], ['roberta-base', 'bert-base-cased'])
+    itertools.product([True, False], ['roberta-base', 'bert-base-cased', 'albert-base-v2'])
 )
-def test_bert(ghost_clipping: bool, model_name_or_path: str):
+def test_classification(ghost_clipping: bool, model_name_or_path: str):
+    if ghost_clipping and 'albert' in model_name_or_path:
+        pytest.skip("Ghost clipping does not support parameter sharing which occurs in ALBERT.")
+
     gc.collect()
     torch.cuda.empty_cache()
 
@@ -86,9 +89,10 @@ def test_bert(ghost_clipping: bool, model_name_or_path: str):
         num_labels=num_labels,
         attention_probs_dropout_prob=0.,
         hidden_dropout_prob=0.,
+        classifier_dropout_prob=0.,  # Important for ALBERT, since otherwise randomness causes gradient difference.
         return_dict=True,
         padding_idx=-1,
-        pad_token_id=-1,  # This is important for ghost clipping to work, since roberta-base default to 1.
+        pad_token_id=-1,  # Important for ghost clipping to work, since roberta-base default to 1.
     )
 
     model = transformers.AutoModelForSequenceClassification.from_pretrained(model_name_or_path, config=config)
@@ -99,7 +103,7 @@ def test_bert(ghost_clipping: bool, model_name_or_path: str):
     print(f'Number of trainable parameters: {num_trainable_params / 1e6:.4f} million')
 
     # Make data.
-    batches = _make_bert_data(
+    batches = _make_classification_data(
         micro_batch_size=micro_batch_size, num_micro_batches=num_micro_batches, seq_len=seq_len, num_labels=num_labels,
     )
 
@@ -177,15 +181,14 @@ def test_bert(ghost_clipping: bool, model_name_or_path: str):
 
 
 @pytest.mark.parametrize(
-    'ghost_clipping,tie_word_embeddings',
-    tuple(itertools.product([False, True], [False, True]))
+    'ghost_clipping,tie_word_embeddings,model_name_or_path',
+    tuple(itertools.product([False, True], [False, True], ['gpt2', 'openai-gpt']))
 )
-def test_gpt2(ghost_clipping, tie_word_embeddings):
+def test_generation(ghost_clipping, tie_word_embeddings, model_name_or_path):
     gc.collect()
     torch.cuda.empty_cache()
 
     lr = 1e-4
-    model_name_or_path = 'gpt2'
     num_micro_batches = 4
     micro_batch_size = 4
     seq_len = 128
@@ -196,20 +199,20 @@ def test_gpt2(ghost_clipping, tie_word_embeddings):
     with pytest.raises(ValueError) if ghost_clipping and tie_word_embeddings else contextlib.nullcontext():
 
         # Set up model.
-        config = transformers.GPT2Config.from_pretrained(model_name_or_path, cache_dir=CACHE_DIR)
+        config = transformers.AutoConfig.from_pretrained(model_name_or_path, cache_dir=CACHE_DIR)
         config.tie_word_embeddings = tie_word_embeddings
         # Remove potential causes of randomness.
         config.attn_pdrop = config.embd_pdrop = config.resid_pdrop = 0.
-        gpt2 = transformers.GPT2LMHeadModel.from_pretrained(model_name_or_path, config=config, cache_dir=CACHE_DIR)
-        gpt2.train()  # Needed to ensure privacy engine works.
+        model = transformers.AutoModelWithLMHead.from_pretrained(model_name_or_path, config=config, cache_dir=CACHE_DIR)
+        model.train()  # Needed to ensure privacy engine works.
 
         # Make data.
-        batches = _make_gpt2_data(
+        batches = _make_generation_data(
             num_micro_batches=num_micro_batches, micro_batch_size=micro_batch_size, seq_len=seq_len
         )
 
         # 1: Compute updates with my engine.
-        clone1 = copy.deepcopy(gpt2).to(DEVICE)
+        clone1 = copy.deepcopy(model).to(DEVICE)
         optimizer = optim.Adam(params=clone1.parameters(), lr=lr)
         privacy_engine = PrivacyEngine(
             module=clone1,
@@ -244,7 +247,7 @@ def test_gpt2(ghost_clipping, tie_word_embeddings):
         torch.cuda.empty_cache()
 
         # 2: Compute grad and clip one-by-one.
-        clone2 = copy.deepcopy(gpt2).to(DEVICE)
+        clone2 = copy.deepcopy(model).to(DEVICE)
         optimizer = torch.optim.Adam(params=clone2.parameters(), lr=lr)
         summed_grad = [torch.zeros_like(param) for param in clone2.parameters()]
         for i, batch in tqdm.tqdm(enumerate(batches, 1), desc="over batches"):
