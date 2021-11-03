@@ -57,3 +57,16 @@ Additional arguments:
   defaults.
 
 Training on the larger datasets for even more epochs should bring further performance gains.
+
+### Notes
+
+- We have reproduced some results in our paper with the codebase of
+  a [concurrent anonymous submission](https://openreview.net/pdf?id=Q42f0dfjECO). Our modified version of their codebase
+  is located at [this link](https://github.com/lxuechen/Differentially-Private-Fine-tuning-of-Language-Models). This
+  code is modified from their original codebase and only optimizes the dense/linear layers in a Transformer model, and
+  hence is not strictly full fine-tuning (since the embedding and LayerNorm layers aren't updated). The main difference
+  from their original setup is that we run everything in full precision (i.e., fp32), not mixed-precision.
+- We got similar results as those reported in the paper with Opacus, but with the embedding subnetworks (word embedding,
+  positional embedding, token type embedding) frozen. Note that unfreezing the embedding subnetwork and plugging such a
+  model (from HF) into Opacus would result in errors, due to how HF transformers are implemented.
+  
