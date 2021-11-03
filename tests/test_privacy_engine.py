@@ -56,14 +56,16 @@ def _prepare_inputs(batch: dict):
     return {key: value.to(DEVICE) for key, value in batch.items()}
 
 
-@pytest.mark.parametrize('ghost_clipping', [False, True])
-def test_bert(ghost_clipping):
+@pytest.mark.parametrize(
+    'ghost_clipping,model_name_or_path',
+    itertools.product([False, True], ['bert-base-cased', 'roberta-base'])
+)
+def test_bert(ghost_clipping: bool, model_name_or_path: str):
     gc.collect()
     torch.cuda.empty_cache()
 
     lr = 1e-4
     num_labels = 2
-    model_name_or_path = 'bert-base-uncased'
     num_micro_batches = 4
     micro_batch_size = 4
     seq_len = 128
@@ -71,14 +73,15 @@ def test_bert(ghost_clipping):
     max_grad_norm = 1
 
     # Set up model -- disable dropout to remove randomness.
-    config = transformers.BertConfig(
+    config = transformers.AutoConfig.from_pretrained(
+        model_name_or_path,
         num_labels=num_labels,
         attention_probs_dropout_prob=0.,
         hidden_dropout_prob=0.,
-        return_dict=True
+        return_dict=True,
     )
-    bert = transformers.BertForSequenceClassification.from_pretrained(model_name_or_path, config=config)
-    bert.requires_grad_(True).train()
+    model = transformers.AutoModelForSequenceClassification.from_pretrained(model_name_or_path, config=config)
+    model.requires_grad_(True).train()
 
     # Make data.
     batches = _make_bert_data(
@@ -86,7 +89,7 @@ def test_bert(ghost_clipping):
     )
 
     # 1: Compute updates with my engine.
-    clone1 = copy.deepcopy(bert).to(DEVICE)
+    clone1 = copy.deepcopy(model).to(DEVICE)
     optimizer = optim.Adam(params=clone1.parameters(), lr=lr)
     privacy_engine = PrivacyEngine(
         module=clone1,
@@ -119,7 +122,7 @@ def test_bert(ghost_clipping):
     torch.cuda.empty_cache()
 
     # 2: Compute grad and clip one-by-one.
-    clone2 = copy.deepcopy(bert).to(DEVICE)
+    clone2 = copy.deepcopy(model).to(DEVICE)
     optimizer = torch.optim.Adam(params=clone2.parameters(), lr=lr)
     summed_grad = [torch.zeros_like(param) for param in clone2.parameters()]
     for i, batch in tqdm.tqdm(enumerate(batches, 1), desc="over batches"):
@@ -142,7 +145,7 @@ def test_bert(ghost_clipping):
     result2 = torch.cat([si.flatten() for si in summed_grad]) / batch_size
     del clone2, loss, logits, labels, optimizer
 
-    del bert, batches, config
+    del model, batches, config
     gc.collect()
     torch.cuda.empty_cache()
 

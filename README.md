@@ -24,7 +24,7 @@ of [Hugging Face transformers](https://huggingface.co/transformers/).
 Make sure you have python>=3.8; run the following command:
 
 ```bash
-pip install git+ssh://git@github.com/lxuechen/private-transformers.git
+pip install git+https://github.com/lxuechen/private-transformers.git
 ```
 
 ## Usage
