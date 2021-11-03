@@ -10,6 +10,8 @@ A large portion of this code is adapted from Opacus (https://github.com/pytorch/
 which is licensed under Apache License 2.0.
 """
 
+from typing import Union
+
 import torch
 from torch import nn
 from torch.functional import F
@@ -59,10 +61,18 @@ def _light_linear_bias_norm_sample(B):
 
 
 @torch.jit.script
-def _light_embedding_norm_sample(A, B):
+def _light_embedding_norm_sample(A, B, padding_idx: Union[int, None]):
     """Lightweight norm computation in ghost clipping."""
-    AAt = A[:, :, None] != A[:, None, :]
-    return torch.sqrt((torch.bmm(B, B.transpose(-1, -2)).masked_fill(AAt, 0)).sum(dim=(1, 2)))
+    not_AAt: torch.Tensor = ~A[:, :, None].eq(A[:, None, :])
+    # Clear the contribution to the norm of the gradient for the padding token.
+    #   In vanilla backpropagation, this particular embedding doesn't contribute to the gradient anyway.
+    #   For more see 1.10.0 doc: https://pytorch.org/docs/stable/generated/torch.nn.Embedding.html
+    #       'the embedding vector at padding_idx is not updated during training, i.e. it remains as a fixed “pad”.'
+    if padding_idx is not None:
+        # The right way to think about the next line of code is that A_i[t, padding_idx] = 0 for all t in [T].
+        #   So the entry gets cleared whenever one of A, A^t takes the padding idx.
+        not_AAt.bitwise_or_((A[:, :, None] == padding_idx) | (A[:, None, :] == padding_idx))
+    return torch.sqrt((torch.bmm(B, B.transpose(-1, -2)).masked_fill(not_AAt, 0)).sum(dim=(1, 2)))
 
 
 def _create_or_extend_grad_sample(param: torch.Tensor, grad_sample: torch.Tensor, batch_dim: int) -> None:
@@ -169,8 +179,7 @@ def _compute_embedding_grad_sample(layer: nn.Embedding, A: torch.Tensor, B: torc
             B = B.half()
 
     if autograd_grad_sample.get_hooks_mode() == "ghost_norm":
-        # TODO: Ghost clipping wouldn't be correct if layer.padding_id!=-1.
-        _create_or_extend_norm_sample(layer.weight, _light_embedding_norm_sample(A, B))
+        _create_or_extend_norm_sample(layer.weight, _light_embedding_norm_sample(A, B, padding_idx=layer.padding_idx))
     else:
         A_dense = F.one_hot(A, num_classes=layer.weight.shape[0]).to(B)  # (batch_size, seq_len, vocab_dim,)
         grad_sample = torch.bmm(A_dense.permute(0, 2, 1), B)
