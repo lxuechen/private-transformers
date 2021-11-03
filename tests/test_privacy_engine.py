@@ -5,6 +5,8 @@ You will need a GPU to run this!
 
 python tests/test_privacy_engine.py
 pytest -s tests
+
+TODO: Ghost clipping currently fails when there's gradient for the padding token. This is minor but a nice-to-fix.
 """
 import contextlib
 import copy
@@ -64,7 +66,7 @@ def _prepare_inputs(batch: dict):
 
 @pytest.mark.parametrize(
     'ghost_clipping,model_name_or_path',
-    itertools.product([True, False], ['roberta-base', 'bert-base-cased', ])
+    itertools.product([True, False], ['roberta-base', 'bert-base-cased'])
 )
 def test_bert(ghost_clipping: bool, model_name_or_path: str):
     gc.collect()
@@ -85,8 +87,10 @@ def test_bert(ghost_clipping: bool, model_name_or_path: str):
         attention_probs_dropout_prob=0.,
         hidden_dropout_prob=0.,
         return_dict=True,
-        padding_idx=-1,  # This is important for ghost clipping to work, since roberta-base default to 1.
+        padding_idx=-1,
+        pad_token_id=-1,  # This is important for ghost clipping to work, since roberta-base default to 1.
     )
+
     model = transformers.AutoModelForSequenceClassification.from_pretrained(model_name_or_path, config=config)
     model.requires_grad_(True).train()
 
