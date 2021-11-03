@@ -92,7 +92,9 @@ def test_classification(ghost_clipping: bool, model_name_or_path: str):
         classifier_dropout_prob=0.,  # Important for ALBERT, since otherwise randomness causes gradient difference.
         return_dict=True,
         padding_idx=-1,
-        pad_token_id=-1,  # Important for ghost clipping to work, since roberta-base default to 1.
+        # roberta sets `pad_token_id` to 1 by default, whereas it's 0 for bert.
+        #   Uncomment the following line, if you want consistency (it's not totally necessary).
+        # pad_token_id=-1,
     )
 
     model = transformers.AutoModelForSequenceClassification.from_pretrained(model_name_or_path, config=config)
