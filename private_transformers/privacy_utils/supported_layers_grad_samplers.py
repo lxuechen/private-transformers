@@ -169,10 +169,16 @@ def _compute_embedding_grad_sample(layer: nn.Embedding, A: torch.Tensor, B: torc
             B = B.half()
 
     if autograd_grad_sample.get_hooks_mode() == "ghost_norm":
+        # TODO: Ghost clipping wouldn't be correct if layer.padding_id!=-1.
         _create_or_extend_norm_sample(layer.weight, _light_embedding_norm_sample(A, B))
     else:
         A_dense = F.one_hot(A, num_classes=layer.weight.shape[0]).to(B)  # (batch_size, seq_len, vocab_dim,)
         grad_sample = torch.bmm(A_dense.permute(0, 2, 1), B)
+        # `torch.nn.Embedding` layers don't accumulate gradient on the padding_idx position.
+        #   We do the same for `grad_sample`.
+        if layer.padding_idx is not None:
+            # `grad_sample` has size (batch_size, num_vocab, embedding_dim).
+            grad_sample[:, layer.padding_idx, :] = 0.
         _create_or_extend_grad_sample(layer.weight, grad_sample, batch_dim)
 
 

@@ -31,6 +31,12 @@ else:
     CACHE_DIR = None
 
 
+def _zip(*args, ):
+    for argi in args:
+        assert len(argi) == len(args[0])
+    return zip(*args)
+
+
 def _make_gpt2_data(num_micro_batches=4, micro_batch_size=4, seq_len=128):
     """Make a batch of plain sequences.
 
@@ -58,7 +64,7 @@ def _prepare_inputs(batch: dict):
 
 @pytest.mark.parametrize(
     'ghost_clipping,model_name_or_path',
-    itertools.product([False, True], ['bert-base-cased', 'roberta-base'])
+    itertools.product([True, False], ['roberta-base', 'bert-base-cased', ])
 )
 def test_bert(ghost_clipping: bool, model_name_or_path: str):
     gc.collect()
@@ -79,9 +85,14 @@ def test_bert(ghost_clipping: bool, model_name_or_path: str):
         attention_probs_dropout_prob=0.,
         hidden_dropout_prob=0.,
         return_dict=True,
+        padding_idx=-1,  # This is important for ghost clipping to work, since roberta-base default to 1.
     )
     model = transformers.AutoModelForSequenceClassification.from_pretrained(model_name_or_path, config=config)
     model.requires_grad_(True).train()
+
+    names = [name for name, param in model.named_parameters() if param.requires_grad]
+    num_trainable_params = sum(param.numel() for param in model.parameters() if param.requires_grad)
+    print(f'Number of trainable parameters: {num_trainable_params / 1e6:.4f} million')
 
     # Make data.
     batches = _make_bert_data(
@@ -90,7 +101,9 @@ def test_bert(ghost_clipping: bool, model_name_or_path: str):
 
     # 1: Compute updates with my engine.
     clone1 = copy.deepcopy(model).to(DEVICE)
-    optimizer = optim.Adam(params=clone1.parameters(), lr=lr)
+    clone1_params = [param for param in clone1.parameters() if param.requires_grad]
+
+    optimizer = optim.Adam(params=clone1_params, lr=lr)
     privacy_engine = PrivacyEngine(
         module=clone1,
         batch_size=batch_size,
@@ -114,8 +127,8 @@ def test_bert(ghost_clipping: bool, model_name_or_path: str):
             optimizer.step(loss=loss)
         else:
             optimizer.virtual_step(loss=loss)
-    # Collect grads.
-    result1 = torch.cat([param.grad.flatten() for param in clone1.parameters()])
+
+    result1 = [param.grad for param in clone1_params]
     privacy_engine.detach()  # Restore`hooks_mode`.
     del clone1, loss, logits, labels, optimizer
     gc.collect()
@@ -123,33 +136,40 @@ def test_bert(ghost_clipping: bool, model_name_or_path: str):
 
     # 2: Compute grad and clip one-by-one.
     clone2 = copy.deepcopy(model).to(DEVICE)
-    optimizer = torch.optim.Adam(params=clone2.parameters(), lr=lr)
-    summed_grad = [torch.zeros_like(param) for param in clone2.parameters()]
+    clone2_params = [param for param in clone2.parameters() if param.requires_grad]
+
+    optimizer = torch.optim.Adam(params=clone2_params, lr=lr)
+    summed_grad = [torch.zeros_like(param) for param in clone2_params]
     for i, batch in tqdm.tqdm(enumerate(batches, 1), desc="over batches"):
         batch = _prepare_inputs(batch)
-        for input_ids, labels in tqdm.tqdm(zip(batch["input_ids"], batch["labels"]), desc="over samples"):
-            optimizer.zero_grad()  # Clear previous grad each time!
+        for input_ids, labels in tqdm.tqdm(_zip(batch["input_ids"], batch["labels"]), desc="over samples"):
+            optimizer.zero_grad(set_to_none=True)  # Clear previous grad each time!
             input_ids = input_ids[None, :]
             labels = labels[None]
 
             logits = clone2(input_ids=input_ids, labels=labels).logits
-            loss = F.cross_entropy(logits, labels, reduction="none")
+            loss = F.cross_entropy(logits, labels, reduction="none").sum()
             loss.backward()
 
             with torch.no_grad():
-                flat_unclipped_grad = torch.cat(tuple(param.grad.flatten() for param in clone2.parameters()))
+                flat_unclipped_grad = torch.cat(tuple(param.grad.flatten() for param in clone2_params))
                 factor = torch.clamp_max(max_grad_norm / flat_unclipped_grad.norm(), 1.)
-                for si, pi in zip(summed_grad, list(clone2.parameters())):
+                for si, pi in _zip(summed_grad, clone2_params):
                     si.add_(factor * pi.grad)
-    # Collect grads.
-    result2 = torch.cat([si.flatten() for si in summed_grad]) / batch_size
+
+    result2 = [grad / batch_size for grad in summed_grad]
     del clone2, loss, logits, labels, optimizer
 
-    del model, batches, config
+    del model
     gc.collect()
     torch.cuda.empty_cache()
 
-    torch.testing.assert_allclose(result1, result2, atol=1e-5, rtol=1e-6)
+    for g1, g2, name in _zip(result1, result2, names):
+        try:
+            torch.testing.assert_allclose(g1, g2, atol=1e-5, rtol=1e-6)
+        except AssertionError as e:
+            print(f"failed at {name}")
+            raise e
 
 
 @pytest.mark.parametrize(
@@ -237,7 +257,7 @@ def test_gpt2(ghost_clipping, tie_word_embeddings):
                 with torch.no_grad():
                     flat_unclipped_grad = torch.cat(tuple(param.grad.flatten() for param in clone2.parameters()))
                     factor = torch.clamp_max(max_grad_norm / flat_unclipped_grad.norm(), 1.)
-                    for si, pi in zip(summed_grad, list(clone2.parameters())):
+                    for si, pi in _zip(summed_grad, list(clone2.parameters())):
                         si.add_(factor * pi.grad)
         # Collect grads.
         result2 = torch.cat([si.flatten() for si in summed_grad]) / batch_size
