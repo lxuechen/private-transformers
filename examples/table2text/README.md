@@ -39,3 +39,10 @@ half hours.
 Feel free to toggle other arguments like `target_epsilon` and `model_name_or_path` of the `run.sh` script to use
 different privacy levels and models. The other hyperparameters should still mostly work for workloads with varied model
 and privacy level.
+
+### Automatic evaluation
+
+While the runs automatically decode from the model (via beam-search) once in a while during training, the script does
+not run any evaluation on top of the generations. For our paper, we ran the
+official [e2e-metrics](https://github.com/tuetschek/e2e-metrics) for evaluating common metrics (e.g., BLEU, ROUGE) on
+E2E, and used the [evaluation pipeline in the GEM-benchmark](https://github.com/GEM-benchmark/GEM-metrics) for DART.
