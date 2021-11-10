@@ -5,8 +5,6 @@ You will need a GPU to run this!
 
 python tests/test_privacy_engine.py
 pytest -s tests
-
-TODO: Ghost clipping currently fails when there's gradient for the padding token. This is minor but a nice-to-fix.
 """
 import contextlib
 import copy
