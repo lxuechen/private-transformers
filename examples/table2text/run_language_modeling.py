@@ -206,12 +206,21 @@ def main():
 
     # TODO: Using a single gigantic parameter group is okay only when `weight_decay` is 0.
     #   Biases and LM parameters should not be decayed perhaps even with privacy.
-    optimizer = torch.optim.AdamW(
-        params=params,
-        lr=training_args.learning_rate,
-        betas=(training_args.adam_beta1, training_args.adam_beta2),
-        eps=training_args.adam_epsilon,
-    )
+    if training_args.optimizer == "adam":
+        optimizer = torch.optim.AdamW(
+            params=params,
+            lr=training_args.learning_rate,
+            betas=(training_args.adam_beta1, training_args.adam_beta2),
+            eps=training_args.adam_epsilon,
+        )
+    elif training_args.optimizer == "sgd":
+        optimizer = torch.optim.SGD(
+            params=params,
+            lr=training_args.learning_rate,
+            momentum=training_args.momentum,
+        )
+    else:
+        raise ValueError(f"Unknown optimizer: {training_args.optimizer}")
     trainer.optimizer = optimizer
 
     # Create the lr_scheduler.

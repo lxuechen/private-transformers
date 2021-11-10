@@ -135,6 +135,8 @@ class TrainingArguments(transformers.TrainingArguments):
         metadata={"help": "Run evaluation before training."},
     )
     save_at_last: str = field(default="no", metadata={"help": "Save at the end of training."})
+    optimizer: str = field(default="adam")
+    momentum: float = field(default=0.9)
 
     def __post_init__(self):
         super(TrainingArguments, self).__post_init__()
