@@ -901,7 +901,7 @@ class Trainer:
             else:
                 ref_path = "/nlp/scr/lxuechen/data/prefix-tuning/data/e2e_data/clean_references_test.txt"
             command = (
-                f'python -m table2text.evaluate_generations '
+                f'python -m table2text.evaluation.evaluate '
                 f"--task 'evaluate' "
                 f"--gen_path {gen_path} "
                 f"--out_path {out_path} "
