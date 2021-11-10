@@ -29,11 +29,10 @@ def main(
         train_dir = "/nlp/scr/lxuechen/private-lm/test"
         kwargs = shared.get_best_hyper_params(
             tuning_mode="full", task_mode="e2e", non_private="no", target_epsilon=3,
-            seed=0, model_name_or_path="gpt2", date="110921", gpu="3090",
+            seed=0, model_name_or_path="gpt2", date="110921", gpu="3090", **additional_kwargs,
         )
         command = shared.get_command(
             **kwargs, mode=wrapper.Mode.local, logs=False, train_dir=train_dir,
-            **additional_kwargs
         )
         os.system(command)
         return

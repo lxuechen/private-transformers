@@ -264,6 +264,8 @@ def get_command(
     date=None,  # Always include this so as to not mess up the folders.
 
     optimizer=None,
+    momentum=0.9,
+
     epochs=5,
     train_batch_size=5,
     per_device_train_batch_size=5,
@@ -444,6 +446,7 @@ def get_command(
         --target_epsilon {target_epsilon} \
         --overwrite_output_dir \
         --lr_decay {lr_decay} \
+        --momentum {momentum} \
         --num_train_epochs {epochs} \
         --skip_generation {skip_generation} '
     if optimizer is not None:
