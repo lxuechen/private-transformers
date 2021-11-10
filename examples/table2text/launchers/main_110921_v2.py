@@ -43,6 +43,18 @@ def main(
         base_dir = "/nlp/scr/lxuechen/private-lm/"
         commands = []
         for seed in seeds:
+            # Vary epsilon.
+            for target_epsilon in (0.1,):
+                kwargs = shared.get_best_hyper_params(
+                    tuning_mode="full", task_mode="e2e", non_private="no", target_epsilon=target_epsilon,
+                    seed=seed, model_name_or_path="gpt2", date="110921",
+                )
+                command = shared.get_command(
+                    **kwargs, evaluate_before_training="no", ghost_clipping="yes",
+                    base_dir=base_dir, mode=wrapper.Mode.submit, hold_job=False, priority="standard",
+                )
+                commands.append(command)
+
             # Vary delta.
             for target_epsilon in (3, 8):
                 for target_delta in (1e-5, 1e-6, 1e-7):
