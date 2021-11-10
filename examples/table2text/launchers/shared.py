@@ -156,6 +156,7 @@ def get_best_hyper_params(
         "model_name_or_path": model_name_or_path,
         "date": date,
 
+        "optimizer": optimizer,
         "task_mode": task_mode,
         "tuning_mode": tuning_mode,
     }
