@@ -230,7 +230,7 @@ def get_command(
     per_device_eval_batch_size=10,
     gradient_accumulation_steps=1,
     per_example_max_grad_norm=1.,
-    noise_multiplier=-1,
+    noise_multiplier=None,
     learning_rate=1e-05,
     rank=1,
 
@@ -342,7 +342,7 @@ def get_command(
     else:
         if train_dir is None:
             # Local debugging.
-            train_dir = "/nlp/scr/lxuechen/tests/prefix-tuning"
+            train_dir = "/nlp/scr/lxuechen/tests/table2text"
 
     if data_folder is None:
         if task_mode == "e2e":
@@ -379,7 +379,6 @@ def get_command(
         --evaluate_during_training "yes" \
         --eval_steps {eval_steps} \
         --eval_epochs {eval_epochs} \
-        --noise_multiplier {noise_multiplier} \
         --non_private {non_private} \
         --cache_dir /nlp/scr/lxuechen/hfcache/control/gpt2/ \
         --max_steps {max_steps} \
@@ -403,6 +402,8 @@ def get_command(
         --lr_decay {lr_decay} \
         --num_train_epochs {epochs} \
         --skip_generation {skip_generation} '
+    if noise_multiplier is not None:
+        command += f'--noise_multiplier {noise_multiplier} '
     if fp16 or (isinstance(fp16, str) and fp16.lower() in ('yes', 'y')):
         command += "--fp16 "
     if static_lm_head:
