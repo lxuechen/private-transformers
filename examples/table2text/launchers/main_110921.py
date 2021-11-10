@@ -2,8 +2,10 @@
 Run with various epsilon and delta.
 
 python -m table2text.launchers.main_110921
+bash table2text/scripts/main_110921.sh
 """
 
+import logging
 import os
 
 import fire
@@ -20,6 +22,8 @@ def main(
     **additional_kwargs,  # Feed in things like `--skip_generation yes`.
 ):
     if test_run:
+        logging.warning('Test run...')
+
         train_dir = "/nlp/scr/lxuechen/private-lm/test"
         kwargs = shared.get_best_hyper_params(
             tuning_mode="full", task_mode="e2e", non_private="no", target_epsilon=3,
@@ -32,7 +36,9 @@ def main(
         os.system(command)
         return
     else:
-        base_dir = "/nlp/scr/lxuechen/private-lm/main_110921",
+        logging.warning('Launch run...')
+
+        base_dir = "/nlp/scr/lxuechen/private-lm/"
         commands = []
         for seed in seeds:
             # Vary epsilon.
