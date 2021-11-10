@@ -207,21 +207,21 @@ def main():
     # TODO: Using a single gigantic parameter group is okay only when `weight_decay` is 0.
     #   Biases and LM parameters should not be decayed perhaps even with privacy.
     if training_args.optimizer == "adam":
-        optimizer = torch.optim.AdamW(
+        trainer.optimizer = torch.optim.AdamW(
             params=params,
             lr=training_args.learning_rate,
             betas=(training_args.adam_beta1, training_args.adam_beta2),
             eps=training_args.adam_epsilon,
         )
     elif training_args.optimizer == "sgd":
-        optimizer = torch.optim.SGD(
+        trainer.optimizer = torch.optim.SGD(
             params=params,
             lr=training_args.learning_rate,
             momentum=training_args.momentum,
         )
     else:
         raise ValueError(f"Unknown optimizer: {training_args.optimizer}")
-    trainer.optimizer = optimizer
+    print(f"optimizer: {trainer.optimizer}")
 
     # Create the lr_scheduler.
     num_update_steps_per_epoch = len(trainer.get_train_dataloader()) // trainer.args.gradient_accumulation_steps
@@ -235,6 +235,7 @@ def main():
         )
     else:
         trainer.lr_scheduler = torch.optim.lr_scheduler.LambdaLR(trainer.optimizer, lambda _: 1.)
+    print(f"lr scheduler: {trainer.lr_scheduler}")
 
     # Hacky way to set noise_multiplier.
     if privacy_args.non_private:
@@ -261,7 +262,7 @@ def main():
 
         print('privacy_args: ')
         print(json.dumps(privacy_args.__dict__, indent=4))
-        privacy_engine.attach(optimizer)
+        privacy_engine.attach(trainer.optimizer)
 
     # Training.
     if training_args.do_train:
