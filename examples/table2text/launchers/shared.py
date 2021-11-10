@@ -45,12 +45,20 @@ def get_best_hyper_params(
                     per_device_train_batch_size = 16
                     per_device_eval_batch_size = 25
             elif gpu in ("3090", "titanrtx"):
-                if model_name_or_path in ("distilgpt2", "gpt2", 'gpt2-medium'):
-                    per_device_train_batch_size = 8
-                    per_device_eval_batch_size = 20
+                if optimizer == "adam":
+                    if model_name_or_path in ("distilgpt2", "gpt2", 'gpt2-medium'):
+                        per_device_train_batch_size = 8
+                        per_device_eval_batch_size = 20
+                    else:
+                        per_device_train_batch_size = 4
+                        per_device_eval_batch_size = 10
                 else:
-                    per_device_train_batch_size = 4
-                    per_device_eval_batch_size = 10
+                    if model_name_or_path in ("distilgpt2", "gpt2", 'gpt2-medium'):
+                        per_device_train_batch_size = 16
+                        per_device_eval_batch_size = 20
+                    else:
+                        per_device_train_batch_size = 4
+                        per_device_eval_batch_size = 10
             else:
                 if model_name_or_path in ("distilgpt2", "gpt2", 'gpt2-medium'):
                     per_device_train_batch_size = 4
