@@ -1,3 +1,4 @@
+import collections
 import inspect
 import json
 import os
@@ -769,7 +770,12 @@ class Trainer:
 
         # Generate with beam search.
         if not self.args.skip_generation:
-            self.generate_and_write_to_file()
+            generations_score = self.generate_and_write_to_file()
+            for split in ('val', 'eval'):
+                for model_tag in ('model', 'ema_model'):
+                    if split in generations_score:
+                        if model_tag in generations_score[split]:
+                            metrics[split][model_tag].update(generations_score[split][model_tag])
 
         if log_results:
             self.log(metrics)
@@ -805,6 +811,7 @@ class Trainer:
 
     def generate_and_write_to_file(self, num_generations_to_print=6, **decoding_kwargs):
         # Pass in the additional decoding stuff from `decoding_kwargs`.
+        generations_score = collections.defaultdict(dict)
 
         models = (self.model,)
         model_tags = ("model",)
@@ -861,6 +868,116 @@ class Trainer:
                 with open(generations_path, 'w') as f:
                     f.writelines([line + '\n' for line in generations])
                 logger.warning(f"Wrote generations to {generations_path}")
+
+                # Collect scores for generation.
+                try:
+                    this_score = self.make_generations_score(generations_path, split)
+                except ValueError as e:  # Most likely caused by auto-metric failed.
+                    this_score = dict()
+                except FileNotFoundError as e:
+                    this_score = dict()
+                generations_score[split][this_model_tag] = this_score
+
+        return generations_score
+
+    def make_generations_score(self, gen_path, split):
+        import uuid
+        import gc
+
+        # Skip training set BLEU evaluation; too costly.
+        if split == "train" or not os.path.exists("/nlp/scr/lxuechen/data"):
+            return dict()
+
+        # Create scratch directory for staging.
+        scratch_dir = f"/nlp/scr/lxuechen/scratch/tmp/{str(uuid.uuid4())}"
+        os.makedirs(scratch_dir, exist_ok=True)
+        out_path = os.path.join(scratch_dir, 'out.json')
+        tmp_path = os.path.join(scratch_dir, 'tmp.json')
+
+        task_mode = self.data_args.task_mode
+        if task_mode == "e2e":
+            if split in ("val", "valid"):
+                ref_path = "/nlp/scr/lxuechen/data/prefix-tuning/data/e2e_data/clean_references_valid.txt"
+            else:
+                ref_path = "/nlp/scr/lxuechen/data/prefix-tuning/data/e2e_data/clean_references_test.txt"
+            command = (
+                f'python -m table2text.evaluate_generations '
+                f"--task 'evaluate' "
+                f"--gen_path {gen_path} "
+                f"--out_path {out_path} "
+                f"--scratch_dir {scratch_dir} "
+                f"--ref_path {ref_path} "
+            )
+            os.system(command)
+            scores = utils.jload(out_path)
+
+        elif task_mode == "dart":
+            # Make space for running bert-score.
+            gc.collect()
+            torch.cuda.empty_cache()
+
+            # First run e2e-metrics (this gives you meteor!!! GEM's meteor seems pretty bad)
+            python_path = "/u/nlp/anaconda/main/anaconda3/envs/lxuechen-prefix-tuning/bin/python"
+            if not os.path.exists(python_path):
+                # This wouldn't run on my cloud machine due to python path.
+                return dict()
+
+            # It's super important to use the json version, since the pure text version might have just spaces
+            # (examples with no reference text at all).
+            if split in ("val", "valid"):
+                ref_path = "/nlp/scr/lxuechen/data/prefix-tuning/data/dart/json_clean_references_valid.json"
+            else:
+                ref_path = "/nlp/scr/lxuechen/data/prefix-tuning/data/dart/json_clean_references_test.json"
+            os.system(
+                f'{python_path} -m table2text.evaluation.evaluate '
+                f"--task 'evaluate' "
+                f"--gen_path {gen_path} "
+                f"--out_path {out_path} "
+                f"--scratch_dir {scratch_dir} "
+                f"--ref_path {ref_path} "
+            )
+            cpu_scores = utils.jload(out_path)
+            print('cpu metric scores: ')
+            print(type(cpu_scores))
+            print(cpu_scores)
+
+            # Convert the generation files to the right format.
+            python_path = "/u/nlp/anaconda/main/anaconda3/envs/lxuechen-prefix-tuning/bin/python"
+            ref_path = "/nlp/scr/lxuechen/data/prefix-tuning/data/dart/dart-v1.1.1-full-test.json"
+            os.system(
+                f"{python_path} -m table2text.evaluation.dart2gem "
+                f"--ref_path {ref_path} "
+                f"--gen_path {gen_path} "
+                f"--task 'convert_gen_single' "
+                f"--out_path {tmp_path} "
+            )
+
+            # GPU: Run GEM evaluation and store to `generations_gem_score`.
+            python_path = "/u/nlp/anaconda/main/anaconda3/envs/lxuechen-gem/bin/python"
+            if split in ('val', 'valid'):
+                ref_path = "/nlp/scr/lxuechen/data/prefix-tuning/data/dart/gem-dart-v1.1.1-full-valid.json"
+            else:
+                ref_path = "/nlp/scr/lxuechen/data/prefix-tuning/data/dart/gem-dart-v1.1.1-full-test.json"
+            os.system(
+                f"{python_path} -m table2text.evaluation.dart2gem "
+                f"--gen_path {tmp_path} "
+                f"--ref_path {ref_path} "
+                f"--out_path {out_path} "
+                f"--task 'eval_single' "
+                f"--python_path {python_path} "
+            )
+            gpu_scores = utils.jload(out_path)
+            print('gpu metrics scores: ')
+            print(type(gpu_scores))
+            print(gpu_scores)
+
+            scores = {**cpu_scores, **gpu_scores}
+        else:
+            raise ValueError(f"Unknown task_mode: {task_mode}")
+
+        # Remove scratch directory.
+        shutil.rmtree(scratch_dir)
+        return scores
 
     def prediction_loop(
         self, dataloader: DataLoader, description: str, prediction_loss_only: Optional[bool] = None
