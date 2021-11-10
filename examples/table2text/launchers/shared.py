@@ -12,9 +12,11 @@ def get_best_hyper_params(
     gpu=None,
     **additional_kwargs,
 ):
-    # Use these configs to
-    #   1) directly get the command via `shared.get_command`,
-    #   2) directly get `train_dir` (for later processing logs, json).
+    """
+    Use these configs to
+      1) directly get the command via `shared.get_command`,
+      2) directly get `train_dir` (for later processing logs, json).
+    """
 
     if non_private.lower() in ('y', 'yes'):  # If non-private, train with gradient clipping but no noise.
         default_kwargs = dict(
@@ -152,6 +154,7 @@ def make_train_dir_from_kwargs(
 
     # Reasonable defaults.
     noise_multiplier=-1,
+    optimizer="adam",
     rank=1,
     mid_dim=512,
     preseqlen=10,
@@ -195,7 +198,8 @@ def make_train_dir_from_kwargs(
                 f"te_{target_epsilon_str}_"
                 f"td_{target_delta_str}_"
                 f"r_{rank}_"
-                f"lr_decay_{lr_decay}",
+                f"lr_decay_{lr_decay}_"
+                f"optimizer_{optimizer}",
                 f"{seed}"
             )
     else:
@@ -214,7 +218,8 @@ def make_train_dir_from_kwargs(
                 f"e_{epochs_str}_"
                 f"te_{target_epsilon_str}_"
                 f"r_{rank}_"
-                f"lr_decay_{lr_decay}",
+                f"lr_decay_{lr_decay}_"
+                f"optimizer_{optimizer}",
                 f"{seed}"
             )
     assert train_dir is not None
@@ -227,6 +232,7 @@ def get_command(
     non_private,
     date=None,  # Always include this so as to not mess up the folders.
 
+    optimizer="adam",
     epochs=5,
     train_batch_size=5,
     per_device_train_batch_size=5,
@@ -344,6 +350,7 @@ def get_command(
             lr_decay=lr_decay,
             seed=seed,
             base_dir=base_dir,
+            optimizer=optimizer,
         )
     else:
         if train_dir is None:
@@ -407,7 +414,8 @@ def get_command(
         --overwrite_output_dir \
         --lr_decay {lr_decay} \
         --num_train_epochs {epochs} \
-        --skip_generation {skip_generation} '
+        --skip_generation {skip_generation} \
+        --optimizer {optimizer} '
     if noise_multiplier is not None:
         command += f'--noise_multiplier {noise_multiplier} '
     if fp16 or (isinstance(fp16, str) and fp16.lower() in ('yes', 'y')):
