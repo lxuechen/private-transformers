@@ -35,7 +35,6 @@ def _light_linear_weight_norm_sample(A, B) -> torch.Tensor:
         raise ValueError(f"Unexpected input shape: {A.size()}, grad_output shape: {B.size()}")
 
 
-@torch.jit.script
 def _light_linear_weight_norm_sample_sequential(A, B):
     """Lightweight norm computation in ghost clipping."""
     return torch.sqrt(
@@ -43,7 +42,6 @@ def _light_linear_weight_norm_sample_sequential(A, B):
     )
 
 
-@torch.jit.script
 def _light_linear_weight_norm_sample_non_sequential(A, B):
     """The Goodfellow trick, i.e., Frobenius norm equal to product of 2-norms."""
     return A.norm(2, dim=1) * B.norm(2, dim=1)
