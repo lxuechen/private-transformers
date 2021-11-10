@@ -32,7 +32,7 @@ def main(
         command = shared.get_command(
             **kwargs, mode=wrapper.Mode.local, logs=False, train_dir=train_dir,
         )
-        os.system(command)
+        os.system(f'export CUDA_VISIBLE_DEVICES=0 ; {command}')
         return
     else:
         logging.warning('Launch run...')
