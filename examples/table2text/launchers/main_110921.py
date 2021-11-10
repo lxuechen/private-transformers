@@ -27,7 +27,7 @@ def main(
         train_dir = "/nlp/scr/lxuechen/private-lm/test"
         kwargs = shared.get_best_hyper_params(
             tuning_mode="full", task_mode="e2e", non_private="no", target_epsilon=3,
-            seed=0, model_name_or_path="distilgpt2", date="110921",
+            seed=0, model_name_or_path="gpt2", date="110921",
         )
         command = shared.get_command(
             **kwargs, mode=wrapper.Mode.local, logs=False, train_dir=train_dir,
@@ -48,8 +48,8 @@ def main(
                     seed=seed, model_name_or_path="gpt2", date="110921",
                 )
                 command = shared.get_command(
-                    **kwargs,
-                    base_dir=base_dir, mode=wrapper.Mode.submit, hold_job=False, priority="standard"
+                    **kwargs, evaluate_before_training="no", ghost_clipping="yes",
+                    base_dir=base_dir, mode=wrapper.Mode.submit, hold_job=False, priority="standard",
                 )
                 commands.append(command)
 

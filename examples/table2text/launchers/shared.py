@@ -230,7 +230,7 @@ def get_command(
     epochs=5,
     train_batch_size=5,
     per_device_train_batch_size=5,
-    per_device_eval_batch_size=10,
+    per_device_eval_batch_size=5,
     gradient_accumulation_steps=1,
     per_example_max_grad_norm=1.,
     noise_multiplier=None,
