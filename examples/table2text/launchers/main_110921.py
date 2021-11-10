@@ -18,13 +18,17 @@ def main(
     seeds=(0,),
 
     test_run=True,
+    **additional_kwargs,  # Feed in things like `--skip_generation yes`.
 ):
     if test_run:
         kwargs = shared.get_best_hyper_params(
             tuning_mode="full", task_mode="e2e", non_private="no", target_epsilon=3,
             seed=0, model_name_or_path="distilgpt2", date="110921",
         )
-        command = shared.get_command(**kwargs, base_dir=base_dir, mode=wrapper.Mode.local, logs=False)
+        command = shared.get_command(
+            **kwargs, base_dir=base_dir, mode=wrapper.Mode.local, logs=False,
+            *additional_kwargs
+        )
         os.system(command)
         return
 
