@@ -16,7 +16,7 @@ from . import shared
 
 def main(
     out_path="./table2text/scripts/main_110921.sh",
-    seeds=(0,),
+    seeds=(0, 1, 2),
 
     test_run=True,
     **additional_kwargs,  # Feed in things like `--skip_generation yes`.
