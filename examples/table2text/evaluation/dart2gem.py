@@ -109,7 +109,6 @@ def eval_dir(
     max_files=sys.maxsize,
     # Original list.
     # metric_list=('bleu', 'rouge', "nist", "meteor", "bertscore", "bleurt"),
-
     # List with `meteor` disabled in GEM; it's strikingly slow, not sure why?!!
     metric_list=('bleu', 'rouge', "nist", "bertscore", "bleurt"),
 

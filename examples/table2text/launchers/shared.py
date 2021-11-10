@@ -146,6 +146,7 @@ def make_train_dir_from_kwargs(
     train_batch_size,
     epochs,
     target_epsilon,
+    target_delta,
     lr_decay,
     seed,
 
@@ -172,7 +173,8 @@ def make_train_dir_from_kwargs(
     mid_dim_str = wrapper.int2str(mid_dim)
     preseqlen_str = wrapper.int2str(preseqlen)
     epochs_str = wrapper.int2str(epochs)
-    target_epsilon_str = wrapper.int2str(target_epsilon)
+    target_epsilon_str = wrapper.float2str(target_epsilon)
+    target_delta_str = wrapper.float2str(target_delta)
 
     if non_private == "no":
         if train_dir is None:
@@ -191,6 +193,7 @@ def make_train_dir_from_kwargs(
                 f"psl_{preseqlen_str}_"
                 f"e_{epochs_str}_"
                 f"te_{target_epsilon_str}_"
+                f"td_{target_delta_str}_"
                 f"r_{rank}_"
                 f"lr_decay_{lr_decay}",
                 f"{seed}"
@@ -273,12 +276,13 @@ def get_command(
 
     # -1 is just a default value.
     target_epsilon=-1,
-    target_delta=-1,
+    target_delta=None,
     task_mode="e2e",
     lr_decay="yes",
     save_at_last="no",
 
     data_folder=None,  # Defaults to the clean data (no canary) based on task mode; see the if-else checklist below.
+    base_dir=None,
 
     gpu=None,  # Randomly grab.
     conda_env="lxuechen-private-lm-gen-release",
@@ -301,7 +305,7 @@ def get_command(
         )
 
     # Less than 1 / (2 * dataset size).
-    if target_delta < 0:
+    if target_delta is None:
         if task_mode == "e2e":
             target_delta = 1e-5
         elif task_mode == "webnlg":
@@ -335,9 +339,11 @@ def get_command(
             preseqlen=preseqlen,
             epochs=epochs,
             target_epsilon=target_epsilon,
+            target_delta=target_delta,
             rank=rank,
             lr_decay=lr_decay,
             seed=seed,
+            base_dir=base_dir,
         )
     else:
         if train_dir is None:
@@ -422,7 +428,7 @@ def get_command(
             hold_job=hold_job,
         )
         command += "\n\n"
-    elif logs:
+    elif logs:  # Mostly useful for running on VM.
         logs_path = utils.join(train_dir, 'logs.out')
         command += f" > {logs_path} 2>&1 "
         command = f"mkdir -p {train_dir}; \n{command}"
