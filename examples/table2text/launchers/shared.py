@@ -9,6 +9,7 @@ from swissknife import wrapper, utils
 def get_best_hyper_params(
     tuning_mode, task_mode, non_private, target_epsilon,
     seed, model_name_or_path, date,
+    optimizer="adam",
     gpu=None,
     **additional_kwargs,
 ):
@@ -36,7 +37,6 @@ def get_best_hyper_params(
             eval_examples=100,
         )
         if task_mode == "e2e":
-            # default when gpu in 3090, titanx, titanxp, titanrtx.
             if gpu in ('a100',):
                 if model_name_or_path in ("distilgpt2", "gpt2", 'gpt2-medium'):
                     per_device_train_batch_size = 32
@@ -44,13 +44,20 @@ def get_best_hyper_params(
                 else:
                     per_device_train_batch_size = 16
                     per_device_eval_batch_size = 25
-            else:
+            elif gpu in ("3090", "titanrtx"):
                 if model_name_or_path in ("distilgpt2", "gpt2", 'gpt2-medium'):
                     per_device_train_batch_size = 8
                     per_device_eval_batch_size = 20
                 else:
                     per_device_train_batch_size = 4
                     per_device_eval_batch_size = 10
+            else:
+                if model_name_or_path in ("distilgpt2", "gpt2", 'gpt2-medium'):
+                    per_device_train_batch_size = 4
+                    per_device_eval_batch_size = 5
+                else:
+                    per_device_train_batch_size = 2
+                    per_device_eval_batch_size = 5
         elif task_mode == "dart":
             # default when gpu in 3090, titanx, titanxp, titanrtx.
             if model_name_or_path in ("distilgpt2", "gpt2", 'gpt2-medium'):
@@ -60,9 +67,9 @@ def get_best_hyper_params(
                 per_device_train_batch_size = 4
                 per_device_eval_batch_size = 10
 
-            # TODO: Improve efficiency via tweaking batch size.
             if gpu in ('a100',):
                 per_device_train_batch_size *= 2
+                per_device_eval_batch_size *= 2
         else:
             raise ValueError(f'Unknown task_mode: {task_mode}')
 
@@ -70,56 +77,72 @@ def get_best_hyper_params(
         default_kwargs["max_eval_batches"] = default_kwargs["eval_examples"] // per_device_eval_batch_size
         default_kwargs["per_device_eval_batch_size"] = per_device_eval_batch_size
 
-    tuning_mode_to_hyper_params = {
-        "full": dict(
-            train_batch_size=1024,
-            learning_rate=2e-3,
-            epochs=10,
-            lr_decay="no",
-            static_lm_head=False,
-            static_embedding=False,
-        ),
-        "scratch": dict(
-            train_batch_size=1024,
-            learning_rate=1e-3,
-            epochs=10,
-            lr_decay="no",
-            static_lm_head=True,
-            static_embedding=True,
-        ),
-        "prefix": dict(
-            train_batch_size=1024,
-            learning_rate=1e-3,
-            epochs=10,
-            lr_decay="no",
-            preseqlen=10,
-            mid_dim=512,
-        ),
-        "rgp": dict(
-            train_batch_size=512,
-            learning_rate=1e-3,
-            epochs=10,
-            lr_decay="no",
-            rank=1,
-        ),
-        "top2": dict(
-            train_batch_size=512,
-            learning_rate=5e-4,
-            lr_decay="yes",
-            epochs=50,
-        ),
-        "lora": dict(
-            train_batch_size=512,
-            learning_rate=1e-3,
-            lr_decay="no",
-            epochs=50,
-            rank=4,
-        ),
-    }
+    if optimizer == "sgd":
+        # TODO: I haven't hyper-tuned DP-SGD with other lightweight methods.
+        tuning_mode_to_hyper_params = {
+            "full": dict(
+                train_batch_size=1024,
+                momentum=0.9,
+                learning_rate=2e-3,
+                epochs=10,
+                lr_decay="no",
+                static_lm_head=False,
+                static_embedding=False,
+            ),
+        }
+    elif optimizer == "adam":
+        tuning_mode_to_hyper_params = {
+            "full": dict(
+                train_batch_size=1024,
+                learning_rate=2e-3,
+                epochs=10,
+                lr_decay="no",
+                static_lm_head=False,
+                static_embedding=False,
+            ),
+            "scratch": dict(
+                train_batch_size=1024,
+                learning_rate=1e-3,
+                epochs=10,
+                lr_decay="no",
+                static_lm_head=True,
+                static_embedding=True,
+            ),
+            "prefix": dict(
+                train_batch_size=1024,
+                learning_rate=1e-3,
+                epochs=10,
+                lr_decay="no",
+                preseqlen=10,
+                mid_dim=512,
+            ),
+            "rgp": dict(
+                train_batch_size=512,
+                learning_rate=1e-3,
+                epochs=10,
+                lr_decay="no",
+                rank=1,
+            ),
+            "top2": dict(
+                train_batch_size=512,
+                learning_rate=5e-4,
+                lr_decay="yes",
+                epochs=50,
+            ),
+            "lora": dict(
+                train_batch_size=512,
+                learning_rate=1e-3,
+                lr_decay="no",
+                epochs=50,
+                rank=4,
+            ),
+        }
+    else:
+        raise ValueError(f"Unknown optimizer: {optimizer}")
+
     kwargs = {
         **tuning_mode_to_hyper_params[tuning_mode],
         **default_kwargs,
-        **additional_kwargs,
 
         "seed": seed,
         "model_name_or_path": model_name_or_path,
@@ -131,6 +154,7 @@ def get_best_hyper_params(
     if kwargs["train_batch_size"] < kwargs["per_device_train_batch_size"]:
         kwargs["per_device_train_batch_size"] = kwargs["train_batch_size"]
     kwargs["gradient_accumulation_steps"] = kwargs["train_batch_size"] // kwargs["per_device_train_batch_size"]
+    kwargs.update(additional_kwargs)  # Overwrite.
     return kwargs
 
 
@@ -154,7 +178,7 @@ def make_train_dir_from_kwargs(
 
     # Reasonable defaults.
     noise_multiplier=-1,
-    optimizer="adam",
+    optimizer=None,
     rank=1,
     mid_dim=512,
     preseqlen=10,
@@ -181,8 +205,7 @@ def make_train_dir_from_kwargs(
 
     if non_private == "no":
         if train_dir is None:
-            train_dir = utils.join(
-                base_dir,
+            name = utils.join(
                 f"date_{date}",
                 f"tm_{task_mode}_"
                 f"mn_{model_name_or_path}_"
@@ -198,14 +221,14 @@ def make_train_dir_from_kwargs(
                 f"te_{target_epsilon_str}_"
                 f"td_{target_delta_str}_"
                 f"r_{rank}_"
-                f"lr_decay_{lr_decay}_"
-                f"optimizer_{optimizer}",
-                f"{seed}"
+                f"lr_decay_{lr_decay}"
             )
+            if optimizer is not None:
+                name += f"_optimizer_{optimizer}"
+            train_dir = utils.join(base_dir, name, f"{seed}")
     else:
         if train_dir is None:
-            train_dir = utils.join(
-                base_dir,
+            name = utils.join(
                 f"date_{date}",
                 f"tm_{task_mode}_"
                 f"mn_{model_name_or_path}_"
@@ -218,11 +241,11 @@ def make_train_dir_from_kwargs(
                 f"e_{epochs_str}_"
                 f"te_{target_epsilon_str}_"
                 f"r_{rank}_"
-                f"lr_decay_{lr_decay}_"
-                f"optimizer_{optimizer}",
-                f"{seed}"
+                f"lr_decay_{lr_decay}"
             )
-    assert train_dir is not None
+            if optimizer is not None:
+                optimizer += f"_optimizer_{optimizer}"
+            train_dir = utils.join(base_dir, name, f"{seed}")
     return train_dir
 
 
@@ -232,7 +255,7 @@ def get_command(
     non_private,
     date=None,  # Always include this so as to not mess up the folders.
 
-    optimizer="adam",
+    optimizer=None,
     epochs=5,
     train_batch_size=5,
     per_device_train_batch_size=5,
@@ -414,8 +437,9 @@ def get_command(
         --overwrite_output_dir \
         --lr_decay {lr_decay} \
         --num_train_epochs {epochs} \
-        --skip_generation {skip_generation} \
-        --optimizer {optimizer} '
+        --skip_generation {skip_generation} '
+    if optimizer is not None:
+        command += f'--optimizer {optimizer} '
     if noise_multiplier is not None:
         command += f'--noise_multiplier {noise_multiplier} '
     if fp16 or (isinstance(fp16, str) and fp16.lower() in ('yes', 'y')):
