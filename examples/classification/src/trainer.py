@@ -582,7 +582,7 @@ class Trainer(transformers.Trainer):
 
         if not self.privacy_args.non_private:
             logs["get_training_stats"] = self.optimizer.get_training_stats()
-            logs["privacy_spent"] = self.optimizer.get_privacy_spent()
+            logs["privacy_spent"] = self.optimizer.get_privacy_spent(accounting_mode="all", lenient=True)
 
         logs["epoch"] = self.epoch
         logs["step"] = self.global_step

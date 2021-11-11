@@ -740,7 +740,7 @@ def main():
             # --- lxuechen: My evaluation procedure.
             if eval_result is not None:
                 if not privacy_args.non_private:
-                    privacy_spent = privacy_engine.get_privacy_spent(accounting_mode="all")
+                    privacy_spent = privacy_engine.get_privacy_spent(accounting_mode="all", lenient=True)
                     to_record_dict = {**eval_result, **privacy_spent}
                 else:
                     to_record_dict = eval_result

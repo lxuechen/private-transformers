@@ -763,7 +763,7 @@ class Trainer:
 
         if hasattr(self.optimizer, 'privacy_engine'):
             pe = self.optimizer.privacy_engine
-            privacy_metrics = pe.get_privacy_spent(accounting_mode="all")
+            privacy_metrics = pe.get_privacy_spent(accounting_mode="all", lenient=True)
             privacy_stats = pe.get_training_stats()
             metrics = {**metrics, **privacy_metrics, **privacy_stats}
 
