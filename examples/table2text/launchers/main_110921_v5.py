@@ -46,12 +46,12 @@ def main(
             for target_epsilon in (0.1,):
                 kwargs = shared.get_best_hyper_params(
                     tuning_mode="full", task_mode="e2e", non_private="no", target_epsilon=target_epsilon,
-                    seed=seed, model_name_or_path="gpt2", date="110921", gpu="titanxp",
+                    seed=seed, model_name_or_path="gpt2", date="110921", gpu="3090",
                 )
                 kwargs.pop("optimizer")
                 command = shared.get_command(
-                    **kwargs, evaluate_before_training="no", ghost_clipping="yes",
-                    base_dir=base_dir, mode=wrapper.Mode.submit, hold_job=False, priority="standard",
+                    **kwargs, evaluate_before_training="no", ghost_clipping="no",
+                    base_dir=base_dir, mode=wrapper.Mode.submit, hold_job=False, priority="high", gpu="3090"
                 )
                 commands.append(command)
 
