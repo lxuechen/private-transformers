@@ -517,7 +517,7 @@ class PrivacyEngine(object):
             param.summed_grad += torch.einsum("i,i...->...", coef_sample, param.grad_sample)
         return norm_sample, coef_sample
 
-    def get_privacy_spent(self, steps=None, accounting_mode=None) -> Dict:
+    def get_privacy_spent(self, steps=None, accounting_mode=None, lenient=False) -> Dict:
         if steps is None:
             steps = self.steps
         if accounting_mode is None:
@@ -540,7 +540,8 @@ class PrivacyEngine(object):
                 privacy_results['alpha_rdp_opacus'] = alpha_rdp
             except Exception as err:
                 logging.fatal("RDP accounting failed! Double check privacy parameters.")
-                raise err
+                if not lenient:
+                    raise err
 
         if accounting_mode in ('all', 'gdp'):
             try:
@@ -549,7 +550,8 @@ class PrivacyEngine(object):
                 privacy_results['mu_gdp'] = mu_gdp
             except Exception as err:
                 logging.fatal("GDP accounting failed! Double check privacy parameters.")
-                raise err
+                if not lenient:
+                    raise err
 
         if accounting_mode in ('all', "rdp_cks"):
             try:
@@ -559,15 +561,18 @@ class PrivacyEngine(object):
             except Exception as err:
                 logging.fatal("RDP accounting with CKS conversion failed! "
                               "Double check privacy parameters.")
-                raise err
+                if not lenient:
+                    raise err
 
         if accounting_mode in ('all', "glw"):
             try:
                 eps_glw = _eps_from_glw(**kwargs)
                 privacy_results.update(eps_glw)
-            except Exception:
+            except Exception as err:
                 logging.fatal("Numerical composition of tradeoff functions failed! "
                               "Double check privacy parameters.")
+                if not lenient:
+                    raise err
 
         return privacy_results
 
