@@ -41,7 +41,7 @@ def main(
         commands = []
         for seed in seeds:
             # Vary learning rate.
-            for learning_rate in (1e1, 3e0, 1e0):
+            for learning_rate in (3e1, 1e1, 3e0, 1e0):
                 kwargs = shared.get_best_hyper_params(
                     tuning_mode="full", task_mode="e2e", non_private="no", target_epsilon=8,
                     seed=seed, model_name_or_path="gpt2", date="111021", gpu="a100", optimizer="sgd",
