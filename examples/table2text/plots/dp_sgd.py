@@ -1,6 +1,6 @@
 """Check with different optimizer.
 
-Performance:
+Performance for epsilon = 8:
     maxx: 3.0, maxy: 63.17575925848472
 """
 
