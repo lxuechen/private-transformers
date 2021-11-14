@@ -60,8 +60,12 @@ def main(
         )
         for target_epsilon in target_epsilons
     ]
+    img_path = utils.join('./vary_delta')
     utils.plot_wrapper(
+        img_path=img_path,
+        suffixes=('.png', '.pdf'),
         errorbars=errorbars,
+        options=dict(xlabel="$\delta$", ylabel="E2E test set BLEU", xscale="log")
     )
 
     # Vary epsilon.
