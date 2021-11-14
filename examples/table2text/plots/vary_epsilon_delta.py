@@ -64,6 +64,35 @@ def main(
         errorbars=errorbars,
     )
 
+    # Vary epsilon.
+    base_dir = "/Users/xuechenli/Desktop/dump/private-lm/date_110921"
+    for target_epsilon in (0.1, 0.5, 2, 3, 5, 8):
+        target_epsilon_str = utils.float2str(target_epsilon)
+        sub_dir = utils.join(
+            base_dir,
+            "tm_e2e_mn_gpt2_np_no_tm_full_pemgn_0_10000000_nm_None_lr_0_00200000_tbs_00001024_md_00000512_psl_00000010_e_00000010_"
+            f"te_{target_epsilon_str}_td_0_00001000_r_1_lr_decay_no"
+        )
+
+        vals = []
+        for seed in seeds:
+            path = utils.join(sub_dir, f'{seed}')
+            argparse_path = utils.join(path, 'argparse.json')
+            final_results_path = utils.join(path, 'final_results.json')
+
+            if (not utils.pathexists(path) or
+                not utils.pathexists(argparse_path) or
+                not utils.pathexists(final_results_path)):
+                continue
+
+            argparse = utils.jload(argparse_path)
+            final_results = utils.jload(final_results_path)
+            test_bleu = final_results["eval"]["model"]["BLEU"]
+            if percentage:
+                test_bleu *= 100
+            vals.append(test_bleu)
+        print(target_epsilon, vals)
+
 
 if __name__ == "__main__":
     fire.Fire(main)
