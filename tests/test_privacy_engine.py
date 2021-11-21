@@ -289,7 +289,7 @@ def test_generation(ghost_clipping, tie_word_embeddings, model_name_or_path):
 
 @pytest.mark.parametrize(
     'ghost_clipping,tie_word_embeddings,model_name_or_path',
-    tuple(itertools.product([False], [False, True], ['facebook/bart-base']))
+    tuple(itertools.product([False, True], [True], ['facebook/bart-base']))
 )
 def test_conditional_generation(ghost_clipping, tie_word_embeddings, model_name_or_path):
     gc.collect()
