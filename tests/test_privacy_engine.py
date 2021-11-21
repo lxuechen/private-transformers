@@ -289,7 +289,7 @@ def test_generation(ghost_clipping, tie_word_embeddings, model_name_or_path):
 
 @pytest.mark.parametrize(
     'ghost_clipping,tie_word_embeddings,model_name_or_path',
-    tuple(itertools.product([False, True], [True], ['facebook/bart-base']))
+    tuple(itertools.product([False], [False, True], ['facebook/bart-base']))
 )
 def test_conditional_generation(ghost_clipping, tie_word_embeddings, model_name_or_path):
     gc.collect()
@@ -303,7 +303,7 @@ def test_conditional_generation(ghost_clipping, tie_word_embeddings, model_name_
     max_grad_norm = 1
 
     # Catch expected failures.
-    # TODO: Test the tie_word_embeddings=False case also.
+    # TODO: Test the `ghost_clipping=True` case also.
     with pytest.raises(ValueError) if ghost_clipping and tie_word_embeddings else contextlib.nullcontext():
 
         # Set up model.
