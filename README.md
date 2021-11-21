@@ -155,7 +155,7 @@ composing multiple private mechanisms.
 ## Disclaimer
 
 - This codebase is not yet production-grade, e.g., cryptographically secure PRNGs are required for sampling noise -- our
-  codebase currently does not use these strong PRNGs.
+  codebase currently does not use these strong PRNGs. This codebase also isn't immune to [floating point representation attacks](https://github.com/pytorch/opacus/pull/260).
 - This codebase is born out of the need to experiment with various things for differentially private NLP in rapidly
   succession. I've tried my best to write clean code, though parts of this codebase may be less tidy than I had hoped
   given the extremely tight timeline.
