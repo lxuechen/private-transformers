@@ -953,5 +953,5 @@ def _eps_from_glw(
         eps_error=eps_error,
         max_compositions=steps
     )
-    eps_low, eps_estimate, eps_upper = accountant.compute_epsilon(num_compositions=1000)
+    eps_low, eps_estimate, eps_upper = accountant.compute_epsilon(num_compositions=steps)
     return dict(eps_low=eps_low, eps_estimate=eps_estimate, eps_upper=eps_upper)
