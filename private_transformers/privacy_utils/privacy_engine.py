@@ -360,7 +360,6 @@ class PrivacyEngine(object):
             self._ghost_step(loss=kwargs.pop("loss"))
         else:
             self._step(loss=kwargs.pop("loss"), scale=scale)
-        self.steps += 1  # Make privacy accounting correct.
 
     @torch.no_grad()
     def virtual_step(self, scale=1, **kwargs):
