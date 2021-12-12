@@ -39,7 +39,7 @@ def _get_command(
         "sst-2": "*cls**sent_0*_It_was*mask*.*sep+*",
         "mnli": "*cls**sent-_0*?*mask*,*+sentl_1**sep+*",
         "qnli": "*cls**sent-_0*?*mask*,*+sentl_1**sep+*",
-        "qpp": "*cls**sent-_0**mask*,*+sentl_1**sep+*",
+        "qqp": "*cls**sent-_0**mask*,*+sentl_1**sep+*",
     }[task_name]
 
     # Epochs chosen roughly to match e2e number of updates. We didn't hyperparameter tune on classification tasks :)
