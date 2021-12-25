@@ -599,7 +599,7 @@ class PrivacyEngine(object):
             f"  sample_rate={self.sample_rate}, \n"
             f"  batch_size={self.batch_size}, \n"
             f"  accounting_mode={self.accounting_mode}, \n"
-            f"  ghost_clipping={self.ghost_clipping}"
+            f"  ghost_clipping={self.ghost_clipping}\n"
             f")"
         )
 
