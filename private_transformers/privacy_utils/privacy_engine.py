@@ -270,7 +270,7 @@ class PrivacyEngine(object):
             if hasattr(param, 'summed_grad'):
                 param.grad += param.summed_grad
             if self.record_snr:
-                signals.append(param.grad.reshape(-1).norm(2))
+                signals.append(param.grad.reshape(-1).norm(2).cpu())
 
             if self.noise_multiplier > 0 and self.max_grad_norm > 0:
                 noise = torch.normal(
@@ -282,7 +282,7 @@ class PrivacyEngine(object):
                 )
                 param.grad += noise
                 if self.record_snr:
-                    noises.append(noise.reshape(-1).norm(2))
+                    noises.append(noise.reshape(-1).norm(2).cpu())
                 del noise
 
             param.grad /= self.batch_size
@@ -410,7 +410,7 @@ class PrivacyEngine(object):
                     f"2) the backward hook registry failed to find the corresponding module to register."
                 )
             if self.record_snr:
-                signals.append(param.grad.reshape(-1).norm(2))
+                signals.append(param.grad.reshape(-1).norm(2).cpu())
 
             if self.noise_multiplier > 0 and self.max_grad_norm > 0:
                 noise = torch.normal(
@@ -421,7 +421,7 @@ class PrivacyEngine(object):
                     dtype=param.dtype,
                 )
                 if self.record_snr:
-                    noises.append(noise.reshape(-1).norm(2))
+                    noises.append(noise.reshape(-1).norm(2).cpu())
                 param.grad += noise
                 del noise
 
@@ -477,7 +477,7 @@ class PrivacyEngine(object):
                 error.args = (args[0] + extra_msg, *args[1:])
                 raise error
             norm = param.grad_sample.reshape(batch_size, -1).norm(2, dim=1)
-            norm_sample.append(norm)
+            norm_sample.append(norm.cpu())
 
         # The stack operation here is prone to error, thus clarify where the error is.
         try:
@@ -513,7 +513,8 @@ class PrivacyEngine(object):
         for name, param in self.named_params:
             if not hasattr(param, 'summed_grad'):
                 param.summed_grad = 0.
-            param.summed_grad += torch.einsum("i,i...->...", coef_sample, param.grad_sample)
+            current_device = param.grad_sample.device
+            param.summed_grad += torch.einsum("i,i...->...", coef_sample.to(current_device), param.grad_sample)
         return norm_sample, coef_sample
 
     def get_privacy_spent(self, steps=None, accounting_mode=None, lenient=False) -> Dict:
