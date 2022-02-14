@@ -17,14 +17,19 @@ def _get_command(
     per_device_train_batch_size=20,
     eval_steps=10,
 ):
+    task_name_to_factor = {
+        "sst-2": 1, "qnli": 2, "qqp": 6, "mnli": 6,
+    }
+    factor = task_name_to_factor[task_name]
+
+    base_batch_size = 1000
+    base_num_train_epochs = 3
+
     # This batch size selection roughly ensures the sampling rates on different
     # datasets are in the same ballpark.
-    batch_size = {
-        "sst-2": 1000,
-        "mnli": 6000,
-        "qqp": 6000,
-        "qnli": 2000,
-    }[task_name]
+    batch_size = int(base_batch_size * factor)
+    num_train_epochs = int(base_num_train_epochs * factor)
+
     gradient_accumulation_steps = batch_size // per_device_train_batch_size
 
     data_dir_suffix = {
@@ -55,7 +60,7 @@ python -m classification.run_classification \
   --num_sample 1 --seed 0 \
   --template {template} \
   --non_private {non_private} \
-  --num_train_epochs 6 \
+  --num_train_epochs {num_train_epochs} \
   --target_epsilon {target_epsilon} \
   --per_device_train_batch_size {per_device_train_batch_size} \
   --gradient_accumulation_steps {gradient_accumulation_steps} \
