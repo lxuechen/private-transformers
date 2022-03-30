@@ -205,10 +205,10 @@ class PrivacyEngine(object):
             _self.privacy_engine.virtual_step(**kwargs)
 
         def get_privacy_spent(_self, **kwargs):
-            _self.privacy_engine.get_privacy_spent(**kwargs)
+            return _self.privacy_engine.get_privacy_spent(**kwargs)
 
         def get_training_stats(_self, **kwargs):
-            _self.privacy_engine.get_training_stats(**kwargs)
+            return _self.privacy_engine.get_training_stats(**kwargs)
 
         optimizer.privacy_engine = self
 
