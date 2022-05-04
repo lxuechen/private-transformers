@@ -11,10 +11,9 @@ import transformers
 from transformers.data.data_collator import default_data_collator
 
 from . import common
+from .common import device
 from .run_classification import DynamicDataTrainingArguments
 from .src.processors import num_labels_mapping
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 def filter_params(
@@ -29,6 +28,13 @@ def filter_params(
     num_tot_params = utils.count_parameters(model)
     num_dif_params = utils.count_parameters(model, only_differentiable=True)
     print(f"Total params: {num_tot_params / 1e6:.4f}m. Differentiable params: {num_dif_params / 1e6:.4f}m")
+
+
+def make_loss(batch: dict, model: transformers.RobertaForSequenceClassification):
+    batch = {key: value.to(device) for key, value in batch.items()}
+    logits = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"])
+    losses = F.cross_entropy(logits.logits, batch["labels"], reduction="none")
+    return losses
 
 
 def make_matmul_closure(
@@ -56,9 +62,7 @@ def make_matmul_closure(
         for batch_idx, batch in tqdm.tqdm(enumerate(loader), total=max_batches):
             if batch_idx >= max_batches:
                 break
-            batch = {key: value.to(device) for key, value in batch.items()}
-            logits = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"])
-            losses = F.cross_entropy(logits.logits, batch["labels"], reduction="none")
+            losses = make_loss(batch=batch, model=model)
             Gv = utils.jvp(outputs=losses, inputs=params, grad_inputs=vectors)  # (n,).
             GtGv = utils.vjp(outputs=losses, inputs=params, grad_outputs=Gv)  # (d,).
 
@@ -76,6 +80,7 @@ def make_spectrum_lanczos(
     loader: DataLoader,
     max_batches: int,
     max_lanczos_iter: int,
+    tol=1e-5,
 ):
     numel = sum(param.numel() for param in model.parameters() if param.requires_grad)
 
@@ -85,21 +90,40 @@ def make_spectrum_lanczos(
         dtype=torch.get_default_dtype(),
         device=device,
         matrix_shape=(numel,),
+        tol=tol,
     )
     if not torch.all(torch.diag(T, diagonal=1) == torch.diag(T, diagonal=-1)):
         logging.warning("Lanczos output failed tri-diagonality check!")
 
     eigenvals, eigenvecs = torch.linalg.eigh(T)
-    logging.warning("eigenvalues:")
+    logging.warning("Lanczos eigenvalues:")
     logging.warning(eigenvals)
     return eigenvals
 
 
+@torch.no_grad()
 def make_spectrum_exact(
-    model,
-    loader,
+    model: transformers.RobertaForSequenceClassification,
+    loader: DataLoader,  # Must be singleton.
+    max_batches: int,
 ):
-    pass
+    params = [param for param in model.parameters() if param.requires_grad]
+
+    grads = []
+    for batch_idx, batch in enumerate(loader):
+        if batch_idx >= max_batches:
+            break
+        with torch.enable_grad():
+            losses = make_loss(batch=batch, model=model)
+            grad = utils.flatten(torch.autograd.grad(losses.squeeze(), params))
+        grads.append(grad.detach())
+
+    grads = torch.stack(grads)  # (n, d).
+    GtG = grads.t() @ grads / max_batches
+    eigenvals, eigenvecs = torch.linalg.eigh(GtG)
+    logging.warning("Exact eigenvalues:")
+    logging.warning(eigenvals)
+    return eigenvals
 
 
 def main(
