@@ -46,7 +46,7 @@ half hours. Larger datasets take longer to train.
 Additional arguments:
 
 - `--target_epsilon`: Target privacy spending
-- `model_name_or_path`: The pretrained model; one of `distilbert-base-uncased`, `bert-base-uncased`
+- `--model_name_or_path`: The pretrained model; one of `distilbert-base-uncased`, `bert-base-uncased`
   , `bert-large-uncased`, `distilroberta-base`, `roberta-base`, `roberta-large`
 - `--few_shot_type`: Whether to use the generic prompt formatter described in Section 3.2 of our paper. `prompt` is to
   use, `finetune` is to not use.
