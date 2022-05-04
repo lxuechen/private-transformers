@@ -44,7 +44,10 @@ def make_matmul_closure(
 
     @torch.enable_grad()
     def matmul_closure(vector: torch.Tensor):
-        """Compute G^t G v; jpv then vjp."""
+        """Compute G^t G v; jpv then vjp.
+
+        This is the uncentered covariance.
+        """
         output = torch.zeros_like(vector)
         vectors = utils.flat_to_shape(vector, shapes)
 
@@ -66,6 +69,37 @@ def make_matmul_closure(
         return output
 
     return matmul_closure
+
+
+def make_spectrum_lanczos(
+    model: transformers.RobertaForSequenceClassification,
+    loader: DataLoader,
+    max_batches: int,
+    max_lanczos_iter: int,
+):
+    numel = sum(param.numel() for param in model.parameters() if param.requires_grad)
+
+    Q, T = gpytorch.utils.lanczos.lanczos_tridiag(
+        make_matmul_closure(model=model, loader=loader, max_batches=max_batches),
+        max_iter=max_lanczos_iter,
+        dtype=torch.get_default_dtype(),
+        device=device,
+        matrix_shape=(numel,),
+    )
+    if not torch.all(torch.diag(T, diagonal=1) == torch.diag(T, diagonal=-1)):
+        logging.warning("Lanczos output failed tri-diagonality check!")
+
+    eigenvals, eigenvecs = torch.linalg.eigh(T)
+    logging.warning("eigenvalues:")
+    logging.warning(eigenvals)
+    return eigenvals
+
+
+def make_spectrum_exact(
+    model,
+    loader,
+):
+    pass
 
 
 def main(
@@ -101,22 +135,7 @@ def main(
     )
     model = transformers.AutoModelForSequenceClassification.from_pretrained(model_name_or_path, config=config)
     model.to(device)
-
     filter_params(model)
-
-    params = [param for param in model.parameters() if param.requires_grad]  # Collect diff-able.
-    numel = sum(param.numel() for param in params)
-
-    Q, T = gpytorch.utils.lanczos.lanczos_tridiag(
-        make_matmul_closure(model=model, loader=train_loader, max_batches=1),
-        max_iter=max_lanczos_iter,
-        dtype=torch.get_default_dtype(),
-        device=device,
-        matrix_shape=(numel,),
-    )
-    eigvals, eigvects = T.eig(eigenvectors=True)
-    logging.warning(f"Q: {Q.size()}, T: {T.size()}, eigvals: {eigvals.size()}")
-    logging.warning(eigvals)
 
 
 # python -m classification.spectrum
