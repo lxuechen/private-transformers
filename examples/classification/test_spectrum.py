@@ -1,5 +1,6 @@
 from swissknife import utils
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import transformers
 from transformers.data.data_collator import default_data_collator
@@ -38,6 +39,21 @@ def make_test_model():
     return model
 
 
+def make_loss_fn(scale=1.):
+    """Make the usual classification loss with custom scale.
+
+    Non-identity scale helps to avoid tiny eigenvalues which Lanczos fails to report.
+    """
+
+    def loss_fn(batch, model):
+        batch = {key: value.to(device) for key, value in batch.items()}
+        logits = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"])
+        losses = F.cross_entropy(logits.logits, batch["labels"], reduction="none") * scale
+        return losses
+
+    return loss_fn
+
+
 def test_make_spectrum_lanczos():
     torch.set_default_dtype(torch.float64)
 
@@ -46,11 +62,11 @@ def test_make_spectrum_lanczos():
     data_dir = "classification/data/original"
     max_seq_length = 128
     max_lanczos_iter = 1000
-    tol = 1e-8
+    tol = 1e-9
 
     train_batch_size = 100
     max_batches = 2
-    max_batches_singleton = max_batches * train_batch_size
+    n_total = max_batches * train_batch_size
 
     model = make_test_model().to(device)
 
@@ -81,17 +97,20 @@ def test_make_spectrum_lanczos():
         pin_memory=True,
     )
 
+    loss_fn = make_loss_fn(scale=n_total)
     lanczos_eigenvals = spectrum.make_spectrum_lanczos(
         model=model,
         loader=train_loader,
         max_batches=max_batches,
         max_lanczos_iter=max_lanczos_iter,
-        tol=tol
+        tol=tol,
+        loss_fn=loss_fn,
     )
     exact_eigenvals = spectrum.make_spectrum_exact(
         model=model,
         loader=train_loader_singleton,
-        max_batches=max_batches_singleton,
+        max_batches=n_total,
+        loss_fn=loss_fn,
     )
 
 

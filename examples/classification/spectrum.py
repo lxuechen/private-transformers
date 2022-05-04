@@ -1,4 +1,5 @@
 import logging
+from typing import Callable
 
 import fire
 import gpytorch
@@ -41,6 +42,7 @@ def make_matmul_closure(
     model: transformers.RobertaForSequenceClassification,
     loader: DataLoader,
     max_batches: int,
+    loss_fn: Callable,
 ):
     """Make covariance-vector product closure."""
     model.eval()
@@ -48,7 +50,6 @@ def make_matmul_closure(
     params = [param for param in model.parameters() if param.requires_grad]  # Collect diff-able.
     shapes = [param.size() for param in params]
 
-    @torch.enable_grad()
     def matmul_closure(vector: torch.Tensor):
         """Compute G^t G v; jpv then vjp.
 
@@ -62,30 +63,33 @@ def make_matmul_closure(
         for batch_idx, batch in tqdm.tqdm(enumerate(loader), total=max_batches):
             if batch_idx >= max_batches:
                 break
-            losses = make_loss(batch=batch, model=model)
-            Gv = utils.jvp(outputs=losses, inputs=params, grad_inputs=vectors)  # (n,).
-            GtGv = utils.vjp(outputs=losses, inputs=params, grad_outputs=Gv)  # (d,).
 
-            with torch.no_grad():
-                GtGv = utils.flatten(GtGv)[:, None]
-                output += GtGv / n_total
+            with torch.enable_grad():
+                losses = loss_fn(batch=batch, model=model)
+                Gv = utils.jvp(outputs=losses, inputs=params, grad_inputs=vectors)  # (n,).
+                GtGv = utils.vjp(outputs=losses, inputs=params, grad_outputs=Gv)  # (d,).
+
+            GtGv = utils.flatten(GtGv)[:, None]
+            output += GtGv / n_total
 
         return output
 
     return matmul_closure
 
 
+@torch.no_grad()
 def make_spectrum_lanczos(
     model: transformers.RobertaForSequenceClassification,
     loader: DataLoader,
     max_batches: int,
     max_lanczos_iter: int,
+    loss_fn: Callable,
     tol=1e-5,
 ):
     numel = sum(param.numel() for param in model.parameters() if param.requires_grad)
 
     Q, T = gpytorch.utils.lanczos.lanczos_tridiag(
-        make_matmul_closure(model=model, loader=loader, max_batches=max_batches),
+        make_matmul_closure(model=model, loader=loader, max_batches=max_batches, loss_fn=loss_fn),
         max_iter=max_lanczos_iter,
         dtype=torch.get_default_dtype(),
         device=device,
@@ -106,7 +110,10 @@ def make_spectrum_exact(
     model: transformers.RobertaForSequenceClassification,
     loader: DataLoader,  # Must be singleton.
     max_batches: int,
+    loss_fn: Callable,
 ):
+    model.eval()
+
     params = [param for param in model.parameters() if param.requires_grad]
 
     grads = []
@@ -114,9 +121,9 @@ def make_spectrum_exact(
         if batch_idx >= max_batches:
             break
         with torch.enable_grad():
-            losses = make_loss(batch=batch, model=model)
-            grad = utils.flatten(torch.autograd.grad(losses.squeeze(), params))
-        grads.append(grad.detach())
+            losses = loss_fn(batch=batch, model=model)
+            grad = torch.autograd.grad(losses.squeeze(), params)
+        grads.append(utils.flatten(grad).detach())
 
     grads = torch.stack(grads)  # (n, d).
     GtG = grads.t() @ grads / max_batches
