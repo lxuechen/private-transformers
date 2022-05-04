@@ -32,7 +32,7 @@ def _get_command(
     batch_size = int(base_batch_size * factor)
     num_train_epochs = int(base_num_train_epochs * factor)
     gradient_accumulation_steps = batch_size // per_device_train_batch_size
-    data_dir = f"{data_dir}/{common.task_name2suffix_name(task_name)}"
+    data_dir = f"{data_dir}/{common.task_name2suffix_name[task_name]}"
     template = {
         "sst-2": "*cls**sent_0*_It_was*mask*.*sep+*",
         "mnli": "*cls**sent-_0*?*mask*,*+sentl_1**sep+*",
