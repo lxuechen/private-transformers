@@ -1,3 +1,5 @@
+import logging
+
 import fire
 import gpytorch
 from swissknife import utils
@@ -105,13 +107,16 @@ def main(
     params = [param for param in model.parameters() if param.requires_grad]  # Collect diff-able.
     numel = sum(param.numel() for param in params)
 
-    gpytorch.utils.lanczos.lanczos_tridiag(
+    Q, T = gpytorch.utils.lanczos.lanczos_tridiag(
         make_matmul_closure(model=model, loader=train_loader, max_batches=1),
         max_iter=max_lanczos_iter,
         dtype=torch.get_default_dtype(),
         device=device,
         matrix_shape=(numel,),
     )
+    eigvals, eigvects = T.eig(eigenvectors=True)
+    logging.warning(f"Q: {Q.size()}, T: {T.size()}, eigvals: {eigvals.size()}")
+    logging.warning(eigvals)
 
 
 # python -m classification.spectrum
