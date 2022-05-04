@@ -1,4 +1,5 @@
 import fire
+import gpytorch
 from swissknife import utils
 import torch.cuda
 import torch.nn.functional as F
@@ -6,7 +7,7 @@ from torch.utils.data import DataLoader
 import tqdm
 import transformers
 from transformers.data.data_collator import default_data_collator
-import gpytorch
+
 from . import common
 from .run_classification import DynamicDataTrainingArguments
 from .src.processors import num_labels_mapping
@@ -53,11 +54,13 @@ def make_matmul_closure(
             batch = {key: value.to(device) for key, value in batch.items()}
             logits = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"])
             losses = F.cross_entropy(logits.logits, batch["labels"], reduction="none")
-            jvp = utils.jvp(outputs=losses, inputs=params, grad_inputs=vectors)
-            vjp = utils.vjp(outputs=losses, inputs=params, grad_outputs=jvp)
+            Gv = utils.jvp(outputs=losses, inputs=params, grad_inputs=vectors)  # (n,).
+            GtGv = utils.vjp(outputs=losses, inputs=params, grad_outputs=Gv)  # (d,).
 
             with torch.no_grad():
-                output += utils.flatten(vjp) / n_total
+                GtGv = utils.flatten(GtGv)[:, None]
+                output += GtGv / n_total
+
         return output
 
     return matmul_closure
