@@ -28,9 +28,9 @@ def make_test_model():
     model = transformers.RobertaForSequenceClassification(config=config)
     model.requires_grad_(False)
 
-    model.classifier.requires_grad_(True)
+    model.classifier.requires_grad_(False)
     for name, param in model.named_parameters():
-        if 'layer.0' in name:
+        if 'layer.0' in name or 'layer.1' in name:
             param.requires_grad_(True)
 
     num_tot_params = utils.count_parameters(model)
@@ -54,7 +54,11 @@ def make_loss_fn(scale=1.):
     return loss_fn
 
 
-def test_make_spectrum_lanczos():
+def test_make_spectrum_lanczos(
+    scale=100.,
+    dump_dir="/mnt/disks/disk-2/dump/spectrum/test_spectrum"
+):
+    utils.makedirs(dump_dir, exist_ok=True)
     torch.set_default_dtype(torch.float64)
 
     model_name_or_path = "distilroberta-base"
@@ -97,7 +101,7 @@ def test_make_spectrum_lanczos():
         pin_memory=True,
     )
 
-    loss_fn = make_loss_fn(scale=n_total)
+    loss_fn = make_loss_fn(scale=scale)
     lanczos_outputs = spectrum.make_spectrum_lanczos(
         model=model,
         loader=train_loader,
@@ -113,8 +117,12 @@ def test_make_spectrum_lanczos():
         max_batches=n_total,
         loss_fn=loss_fn,
     )
+    torch.save(
+        {"lanczos_outputs": lanczos_outputs, "exact_eigenvals": exact_eigenvals, },
+        utils.join(dump_dir, "eigenvals.pt")
+    )
 
-    sigma_squared = 0.01
+    sigma_squared = 0.001
     lanczos_density, lanczos_grids = density.tridiag_to_density(
         [lanczos_outputs["T"].cpu().numpy()],
         sigma_squared=sigma_squared
@@ -131,7 +139,7 @@ def test_make_spectrum_lanczos():
     plt.xlabel('$\lambda$')
     plt.ylabel('Density')
     plt.legend()
-    plt.savefig("/mnt/disks/disk-2/dump/spectrum/test_spectrum.png")
+    plt.savefig(utils.join(dump_dir, "vis.png"))
 
 
 if __name__ == "__main__":

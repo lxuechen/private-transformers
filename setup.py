@@ -30,6 +30,8 @@ setuptools.setup(
         "transformers",
         "numpy",
         "scipy",
+        "jupyterlab",
+        "jupyter",
     ],
     python_requires='~=3.8',
     classifiers=[
