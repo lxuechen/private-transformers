@@ -214,7 +214,7 @@ def main(
     tol=1e-7,
 
     random_init=False,
-    dump_path="/mnt/disks/disk-2/dump/spectrum/init_compare/dump.json",
+    dump_path="/mnt/disks/disk-2/dump/spectrum/init_compare/dump.pt",
     dtype="float64",
 ):
     torch.set_default_dtype(utils.get_dtype(dtype))
