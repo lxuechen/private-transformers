@@ -69,7 +69,7 @@ def test_make_spectrum_lanczos(
     tol = 1e-9
 
     train_batch_size = 100
-    max_batches = 2
+    max_batches = 5
     n_total = max_batches * train_batch_size
 
     model = make_test_model().to(device)
@@ -118,7 +118,7 @@ def test_make_spectrum_lanczos(
         loss_fn=loss_fn,
     )
     torch.save(
-        {"lanczos_outputs": lanczos_outputs, "exact_eigenvals": exact_eigenvals, },
+        {"lanczos_outputs": lanczos_outputs, "exact_eigenvals": exact_eigenvals},
         utils.join(dump_dir, "eigenvals.pt")
     )
 
