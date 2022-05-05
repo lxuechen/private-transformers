@@ -179,6 +179,7 @@ def get_init_eigenvals(
 
     max_batches,
     max_lanczos_iter,
+    tol,
     random_init=False,
 ):
     model, loader = make_model_and_loader(
@@ -197,6 +198,7 @@ def get_init_eigenvals(
         max_batches=max_batches,
         max_lanczos_iter=max_lanczos_iter,
         loss_fn=make_loss,
+        tol=tol,
     )
 
 
@@ -208,9 +210,14 @@ def main(
     max_seq_length=128,
     max_lanczos_iter=100,
     max_batches=200,
+    tol=1e-7,
 
-    dump_dir="/mnt/disks/disk-2/dump/spectrum/init_compare"
+    dump_dir="/mnt/disks/disk-2/dump/spectrum/init_compare",
+    dtype="float64",
 ):
+    torch.set_default_dtype(utils.get_dtype(dtype))
+    utils.makedirs(dump_dir, exist_ok=True)
+
     outputs = []
     for random_init in (True, False):
         eigenvals = get_init_eigenvals(
@@ -221,11 +228,13 @@ def main(
             max_seq_length=max_seq_length,
             max_lanczos_iter=max_lanczos_iter,
             max_batches=max_batches,
+            tol=tol,
         )
         outputs.append(
             dict(random_init=random_init, eigenvals=eigenvals)
         )
-    torch.save(outputs, utils.join(dump_dir, 'dump.json'))
+    dump_path = utils.join(dump_dir, 'dump.json')
+    torch.save(outputs, dump_path)
 
 
 if __name__ == "__main__":
