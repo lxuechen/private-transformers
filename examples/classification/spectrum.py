@@ -136,13 +136,12 @@ def make_spectrum_exact(
     return eigenvals
 
 
-def main(
-    model_name_or_path="distilroberta-base",
-    task_name="sst-2",
-    data_dir="classification/data/original",
-    train_batch_size=128,
-    max_seq_length=128,
-    max_lanczos_iter=100,
+def make_model_and_loader(
+    model_name_or_path,
+    task_name,
+    data_dir,
+    max_seq_length,
+    batch_size,
 ):
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_name_or_path, use_fast=False)
 
@@ -155,22 +154,47 @@ def main(
     train_loader = DataLoader(
         train_dataset,
         shuffle=False,
-        batch_size=train_batch_size,
+        batch_size=batch_size,
         collate_fn=default_data_collator,
         drop_last=True,
         num_workers=0,
         pin_memory=True
     )
-
-    # TODO: Main experiment here!
     config = transformers.AutoConfig.from_pretrained(
         model_name_or_path,
         num_labels=num_labels_mapping[task_name],
         finetuning_task=task_name,
     )
     model = transformers.AutoModelForSequenceClassification.from_pretrained(model_name_or_path, config=config)
-    model.to(device)
     filter_params(model)
+
+    return model, train_loader
+
+
+def main(
+    model_name_or_path="roberta-base",
+    task_name="sst-2",
+    data_dir="classification/data/original",
+    batch_size=128,
+    max_seq_length=128,
+    max_lanczos_iter=100,
+    max_batches=100,  # 100 x 128.
+):
+    model, loader = make_model_and_loader(
+        model_name_or_path=model_name_or_path,
+        task_name=task_name,
+        data_dir=data_dir,
+        batch_size=batch_size,
+        max_seq_length=max_seq_length,
+    )
+
+    eigenvals = make_spectrum_lanczos(
+        model=model,
+        loader=loader,
+        max_batches=max_batches,
+        max_lanczos_iter=max_lanczos_iter,
+        loss_fn=make_loss,
+    )
 
 
 # python -m classification.spectrum
