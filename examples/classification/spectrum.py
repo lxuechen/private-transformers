@@ -85,6 +85,7 @@ def make_spectrum_lanczos(
     max_lanczos_iter: int,
     loss_fn: Callable,
     tol=1e-5,
+    return_dict=False,
 ):
     numel = sum(param.numel() for param in model.parameters() if param.requires_grad)
 
@@ -102,6 +103,8 @@ def make_spectrum_lanczos(
     eigenvals, eigenvecs = torch.linalg.eigh(T)
     logging.warning("Lanczos eigenvalues:")
     logging.warning(eigenvals)
+    if return_dict:
+        return dict(Q=Q, T=T, eigenvecs=eigenvecs, eigenvals=eigenvals)
     return eigenvals
 
 
@@ -159,6 +162,7 @@ def main(
         pin_memory=True
     )
 
+    # TODO: Main experiment here!
     config = transformers.AutoConfig.from_pretrained(
         model_name_or_path,
         num_labels=num_labels_mapping[task_name],

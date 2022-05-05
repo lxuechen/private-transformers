@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 import transformers
 from transformers.data.data_collator import default_data_collator
 
-from . import common, spectrum
+from . import common, spectrum, density
 from .common import device
 from .run_classification import DynamicDataTrainingArguments
 
@@ -98,13 +98,14 @@ def test_make_spectrum_lanczos():
     )
 
     loss_fn = make_loss_fn(scale=n_total)
-    lanczos_eigenvals = spectrum.make_spectrum_lanczos(
+    lanczos_outputs = spectrum.make_spectrum_lanczos(
         model=model,
         loader=train_loader,
         max_batches=max_batches,
         max_lanczos_iter=max_lanczos_iter,
         tol=tol,
         loss_fn=loss_fn,
+        return_dict=True,
     )
     exact_eigenvals = spectrum.make_spectrum_exact(
         model=model,
@@ -112,6 +113,16 @@ def test_make_spectrum_lanczos():
         max_batches=n_total,
         loss_fn=loss_fn,
     )
+
+    lanczos_density, lanczos_grids = density.tridiag_to_density([lanczos_outputs["T"].cpu().numpy()])
+    exact_density, exact_grids = density.tridiag_to_density([torch.diag(exact_eigenvals).cpu().numpy()])
+
+    import matplotlib.pyplot as plt
+    plt.semilogy(lanczos_grids, lanczos_density + 1.0e-7, label='Lanczos')
+    plt.semilogy(exact_grids, exact_density + 1.0e-7, label='Lanczos')
+    plt.xlabel('$\lambda$')
+    plt.ylabel('Density')
+    plt.savefig("/mnt/disks/disk-2/dump/spectrum/test_spectrum.png")
 
 
 if __name__ == "__main__":
