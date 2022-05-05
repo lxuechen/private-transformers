@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import gc
 
 from gpytorch import settings
 import torch
@@ -90,6 +91,8 @@ def lanczos_tridiag(
 
     # Now we start the iteration
     for k in range(1, num_iter):
+        gc.collect()
+
         # Get previous values
         q_prev_vec = q_mat[k - 1]
         q_curr_vec = q_mat[k]
