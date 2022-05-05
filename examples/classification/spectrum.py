@@ -45,8 +45,6 @@ def make_matmul_closure(
     loss_fn: Callable,
 ):
     """Make covariance-vector product closure."""
-    model.eval()
-
     params = [param for param in model.parameters() if param.requires_grad]  # Collect diff-able.
     shapes = [param.size() for param in params]
 
@@ -87,6 +85,8 @@ def make_spectrum_lanczos(
     tol=1e-5,
     return_dict=False,
 ):
+    model.to(device).eval()
+
     numel = sum(param.numel() for param in model.parameters() if param.requires_grad)
 
     Q, T = gpytorch.utils.lanczos.lanczos_tridiag(
@@ -115,7 +115,7 @@ def make_spectrum_exact(
     max_batches: int,
     loss_fn: Callable,
 ):
-    model.eval()
+    model.to(device).eval()
 
     params = [param for param in model.parameters() if param.requires_grad]
 
@@ -175,7 +175,7 @@ def main(
     model_name_or_path="roberta-base",
     task_name="sst-2",
     data_dir="classification/data/original",
-    batch_size=128,
+    batch_size=64,
     max_seq_length=128,
     max_lanczos_iter=100,
     max_batches=100,  # 100 x 128.
