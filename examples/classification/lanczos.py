@@ -92,6 +92,7 @@ def lanczos_tridiag(
     # Now we start the iteration
     for k in range(1, num_iter):
         gc.collect()
+        torch.cuda.empty_cache()
 
         # Get previous values
         q_prev_vec = q_mat[k - 1]
