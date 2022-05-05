@@ -2,7 +2,6 @@ import logging
 from typing import Callable
 
 import fire
-import gpytorch
 from swissknife import utils
 import torch.cuda
 import torch.nn.functional as F
@@ -11,7 +10,7 @@ import tqdm
 import transformers
 from transformers.data.data_collator import default_data_collator
 
-from . import common
+from . import common, lanczos
 from .common import device
 from .run_classification import DynamicDataTrainingArguments
 from .src.processors import num_labels_mapping
@@ -89,7 +88,7 @@ def make_spectrum_lanczos(
 
     numel = sum(param.numel() for param in model.parameters() if param.requires_grad)
 
-    Q, T = gpytorch.utils.lanczos.lanczos_tridiag(
+    Q, T = lanczos.lanczos_tridiag(
         make_matmul_closure(model=model, loader=loader, max_batches=max_batches, loss_fn=loss_fn),
         max_iter=max_lanczos_iter,
         dtype=torch.get_default_dtype(),
