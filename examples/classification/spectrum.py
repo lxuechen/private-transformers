@@ -199,6 +199,7 @@ def get_init_eigenvals(
         max_lanczos_iter=max_lanczos_iter,
         loss_fn=make_loss,
         tol=tol,
+        return_dict=True
     )
 
 
@@ -206,35 +207,35 @@ def main(
     model_name_or_path="roberta-base",
     task_name="sst-2",
     data_dir="classification/data/original",
-    batch_size=64,
+    batch_size=32,
     max_seq_length=128,
     max_lanczos_iter=100,
-    max_batches=200,
+    max_batches=400,
     tol=1e-7,
 
-    dump_dir="/mnt/disks/disk-2/dump/spectrum/init_compare",
+    random_init=False,
+    dump_path="/mnt/disks/disk-2/dump/spectrum/init_compare/dump.json",
     dtype="float64",
 ):
     torch.set_default_dtype(utils.get_dtype(dtype))
-    utils.makedirs(dump_dir, exist_ok=True)
+    utils.makedirs(utils.dirname(dump_path), exist_ok=True)
 
-    outputs = []
-    for random_init in (True, False):
-        eigenvals = get_init_eigenvals(
-            model_name_or_path=model_name_or_path,
-            task_name=task_name,
-            data_dir=data_dir,
-            batch_size=batch_size,
-            max_seq_length=max_seq_length,
-            max_lanczos_iter=max_lanczos_iter,
-            max_batches=max_batches,
-            tol=tol,
-        )
-        outputs.append(
-            dict(random_init=random_init, eigenvals=eigenvals)
-        )
-    dump_path = utils.join(dump_dir, 'dump.json')
-    torch.save(outputs, dump_path)
+    kwargs = dict(
+        model_name_or_path=model_name_or_path,
+        task_name=task_name,
+        data_dir=data_dir,
+        batch_size=batch_size,
+        max_seq_length=max_seq_length,
+        max_lanczos_iter=max_lanczos_iter,
+        max_batches=max_batches,
+        tol=tol,
+        random_init=random_init,
+    )
+    outputs = get_init_eigenvals(**kwargs)
+    torch.save(
+        dict(**kwargs, **outputs),
+        dump_path,
+    )
 
 
 if __name__ == "__main__":
