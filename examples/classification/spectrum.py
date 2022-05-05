@@ -170,14 +170,16 @@ def make_model_and_loader(
     return model, train_loader
 
 
-def main(
-    model_name_or_path="roberta-base",
-    task_name="sst-2",
-    data_dir="classification/data/original",
-    batch_size=64,
-    max_seq_length=128,
-    max_lanczos_iter=100,
-    max_batches=100,  # 100 x 128.
+def get_init_eigenvals(
+    model_name_or_path,
+    task_name,
+    data_dir,
+    batch_size,
+    max_seq_length,
+
+    max_batches,
+    max_lanczos_iter,
+    random_init=False,
 ):
     model, loader = make_model_and_loader(
         model_name_or_path=model_name_or_path,
@@ -186,8 +188,10 @@ def main(
         batch_size=batch_size,
         max_seq_length=max_seq_length,
     )
+    if random_init:
+        model.init_weights()
 
-    eigenvals = make_spectrum_lanczos(
+    return make_spectrum_lanczos(
         model=model,
         loader=loader,
         max_batches=max_batches,
@@ -196,6 +200,34 @@ def main(
     )
 
 
-# python -m classification.spectrum
+def main(
+    model_name_or_path="roberta-base",
+    task_name="sst-2",
+    data_dir="classification/data/original",
+    batch_size=64,
+    max_seq_length=128,
+    max_lanczos_iter=100,
+    max_batches=200,
+
+    dump_dir="/mnt/disks/disk-2/dump/spectrum/init_compare"
+):
+    outputs = []
+    for random_init in (True, False):
+        eigenvals = get_init_eigenvals(
+            model_name_or_path=model_name_or_path,
+            task_name=task_name,
+            data_dir=data_dir,
+            batch_size=batch_size,
+            max_seq_length=max_seq_length,
+            max_lanczos_iter=max_lanczos_iter,
+            max_batches=max_batches,
+        )
+        outputs.append(
+            dict(random_init=random_init, eigenvals=eigenvals)
+        )
+    torch.save(outputs, utils.join(dump_dir, 'dump.json'))
+
+
 if __name__ == "__main__":
+    # python -m classification.spectrum --max_lanczos_iter 1 --max_batches 1
     fire.Fire(main)
