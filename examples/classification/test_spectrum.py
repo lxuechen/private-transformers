@@ -114,14 +114,23 @@ def test_make_spectrum_lanczos():
         loss_fn=loss_fn,
     )
 
-    lanczos_density, lanczos_grids = density.tridiag_to_density([lanczos_outputs["T"].cpu().numpy()])
-    exact_density, exact_grids = density.tridiag_to_density([torch.diag(exact_eigenvals).cpu().numpy()])
+    sigma_squared = 0.01
+    lanczos_density, lanczos_grids = density.tridiag_to_density(
+        [lanczos_outputs["T"].cpu().numpy()],
+        sigma_squared=sigma_squared
+    )
+    exact_density, exact_grids = density.tridiag_to_density(
+        [torch.diag(exact_eigenvals).cpu().numpy()],
+        sigma_squared=sigma_squared
+    )
 
     import matplotlib.pyplot as plt
+    plt.figure(dpi=300)
     plt.semilogy(lanczos_grids, lanczos_density + 1.0e-7, label='Lanczos')
-    plt.semilogy(exact_grids, exact_density + 1.0e-7, label='Lanczos')
+    plt.semilogy(exact_grids, exact_density + 1.0e-7, label='exact')
     plt.xlabel('$\lambda$')
     plt.ylabel('Density')
+    plt.legend()
     plt.savefig("/mnt/disks/disk-2/dump/spectrum/test_spectrum.png")
 
 
