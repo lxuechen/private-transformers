@@ -225,14 +225,12 @@ class DynamicDataTrainingArguments(DataTrainingArguments):
         metadata={"help": "(DO NOT List of templates (only initialized after the program starts."}
     )
 
-    # --- lxuechen: For privacy.
     inference_time_demo: bool = field(
         default=False,
         metadata={"help": "Do not use demonstrations during inference time; "
                           "the original paper attaches to each test example a few training examples as demo -- "
                           "apparently this breaks privacy. We turn this off by default here."}
     )
-    # ---
 
 
 @dataclass
@@ -550,7 +548,6 @@ def main():
     print(" | model type: ")
     print(type(model))
 
-    # TODO: There's a bug with non-prompt fine-tuning!
     if model_args.attention_only.lower() in ('yes', 'y', 't', 'true'):
         model.requires_grad_(False)
         for name, param in model.named_parameters():
@@ -623,7 +620,6 @@ def main():
         eval_dataset=eval_dataset,
         compute_metrics=build_compute_metrics_fn(data_args.task_name)
     )
-    # lxuechen: RGP -- Manually select the parameters to update.
     no_decay = ['bias', 'LayerNorm.weight']
     optimizer_grouped_parameters = [
         {'params': [p for n, p in named_params if not any(nd in n for nd in no_decay)],
@@ -645,7 +641,6 @@ def main():
         trainer.lr_scheduler = torch.optim.lr_scheduler.LambdaLR(trainer.optimizer, lambda _: 1.)
 
     if privacy_args.non_private:
-        # lxuechen: Needed for RGP.
         privacy_args.noise_multiplier = 0.
         privacy_args.per_example_max_grad_norm = None
     else:

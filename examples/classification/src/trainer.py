@@ -40,6 +40,7 @@ from transformers.integrations import (
     is_tensorboard_available,
     is_wandb_available,
 )
+from transformers.modeling_outputs import SequenceClassifierOutput
 from transformers.optimization import AdamW, get_linear_schedule_with_warmup
 from transformers.trainer_callback import (
     DefaultFlowCallback,
@@ -380,10 +381,6 @@ class Trainer(transformers.Trainer):
             else:
                 epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=False)
 
-            # Reset the past mems state at the beginning of each epoch if necessary.
-            if self.args.past_index >= 0:
-                self._past = None
-
             for step, inputs in enumerate(epoch_iterator):
 
                 # Skip past any already trained steps if resuming training
@@ -414,10 +411,6 @@ class Trainer(transformers.Trainer):
                     self.global_step += 1
                     self.epoch = epoch + (step + 1) / len(epoch_iterator)
 
-                    # ----------------------------------------------------------------------
-                    # BEGIN CHANGES.
-                    # ----------------------------------------------------------------------
-
                     metrics = None
                     if (
                         self.args.evaluation_strategy in (IntervalStrategy.STEPS, EvaluationStrategy.STEPS) and
@@ -428,10 +421,6 @@ class Trainer(transformers.Trainer):
                             logging_loss_scalar=logging_loss_scalar,
                             scheduler=scheduler,
                         )
-
-                    # ----------------------------------------------------------------------
-                    # END CHANGES.
-                    # ----------------------------------------------------------------------
 
                 else:
                     if not self.privacy_args.non_private:
@@ -456,10 +445,6 @@ class Trainer(transformers.Trainer):
                 # tpu-comment: Logging debug metrics for PyTorch/XLA (compile, execute times, ops, etc.)
                 xm.master_print(met.metrics_report())
 
-        if self.args.past_index and hasattr(self, "_past"):
-            # Clean the state at the end of training
-            delattr(self, "_past")
-
         if self.args.evaluate_after_training:
             logger.info("Evaluate after training ends.")
             self.evaluate_and_log(
@@ -478,17 +463,13 @@ class Trainer(transformers.Trainer):
         Subclass and override for custom behavior.
         """
         labels = inputs.pop("labels")
-        outputs = model(**inputs)
-        logits, = outputs  # Unpack.
+        outputs = model(**inputs)  # This should not contain `loss`.
+        logits = outputs[0]
+        if isinstance(outputs, SequenceClassifierOutput):
+            outputs = (logits,)
         loss = F.cross_entropy(logits, labels, reduction="none")  # (batch_size,).
         if not return_vector_loss:
             loss = loss.mean(dim=0)
-
-        # Save past state if it exists
-        # TODO: this needs to be fixed and made cleaner later.
-        if self.args.past_index >= 0:
-            self._past = outputs[self.args.past_index]
-
         return (loss, (loss,) + outputs) if return_outputs else loss
 
     def training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> dict:
