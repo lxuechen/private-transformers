@@ -1,7 +1,5 @@
 """Finetuning the library models for sequence classification on GLUE."""
 
-import os
-
 import collections
 import dataclasses
 from dataclasses import dataclass, field
@@ -68,6 +66,7 @@ class ModelArguments:
     )
 
     static_embedding: bool = field(default=False)
+    attention_only: str = field(default="no")
 
 
 @dataclass
@@ -550,12 +549,21 @@ def main():
     print(" | model type: ")
     print(type(model))
 
-    model.requires_grad_(True)
-    if model_args.static_embedding:
-        model.get_input_embeddings().requires_grad_(False)
+    if model_args.attention_only.lower() in ('yes', 'y', 't', 'true'):
+        model.requires_grad_(False)
+        for name, param in model.named_parameters():
+            if 'attention' in name or 'classifier' in name or 'lm_head' in name:
+                param.requires_grad_(True)
+    else:
+        model.requires_grad_(True)
+        if model_args.static_embedding:
+            model.get_input_embeddings().requires_grad_(False)
+
     named_params = [(name, param) for name, param in model.named_parameters() if param.requires_grad]
     print('Params to update: ')
     print(json.dumps([name for name, param in named_params], indent=4))
+    num_differentiable_params = utils.count_parameters(model, only_differentiable=True)
+    print(f'Number of differentiable params: {num_differentiable_params / 1e6:.3f} million')
 
     # For BERT, increase the size of the segment (token type) embeddings
     if config.model_type == 'bert':

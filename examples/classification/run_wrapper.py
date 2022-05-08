@@ -16,6 +16,7 @@ def _get_command(
     non_private,
     target_epsilon,
     few_shot_type,
+    attention_only,
     per_device_train_batch_size=20,
     eval_steps=10,
 ):
@@ -66,7 +67,8 @@ python -m classification.run_classification \
   --max_seq_len 256 \
   --evaluation_strategy steps --eval_steps {eval_steps} --evaluate_before_training True \
   --do_train --do_eval \
-  --first_sent_limit 200 --other_sent_limit 200 --truncate_head yes
+  --first_sent_limit 200 --other_sent_limit 200 --truncate_head yes \
+  --attention_only {attention_only}
     '''
 
 
@@ -79,6 +81,7 @@ def main(
     ghost_clipping="yes",
     non_private="no",
     target_epsilon=8,
+    attention_only="no",
 ):
     command = _get_command(
         output_dir=output_dir,
@@ -89,6 +92,7 @@ def main(
         non_private=non_private,
         target_epsilon=target_epsilon,
         few_shot_type=few_shot_type,
+        attention_only=attention_only,
     )
     print('Running command:')
     print(command)
