@@ -19,6 +19,7 @@ from transformers import GlueDataset
 from transformers import HfArgumentParser, set_seed
 
 from private_transformers import PrivacyEngine
+from .src.common import true_tags
 from .src.compiled_args import PrivacyArguments, TrainingArguments
 from .src.dataset import FewShotDataset
 from .src.models import (
@@ -68,6 +69,11 @@ class ModelArguments:
     static_embedding: str = field(default="no")
     static_lm_head: str = field(default="no")
     attention_only: str = field(default="no")
+
+    def __post_init__(self):
+        self.static_embedding = self.static_embedding.lower() in true_tags  # noqa
+        self.static_lm_head = self.static_lm_head.lower() in true_tags  # noqa
+        self.attention_only = self.attention_only.lower() in true_tags  # noqa
 
 
 @dataclass
@@ -548,16 +554,16 @@ def main():
     print(" | model type: ")
     print(type(model))
 
-    if model_args.attention_only.lower() in ('yes', 'y', 't', 'true'):
+    if model_args.attention_only:
         model.requires_grad_(False)
         for name, param in model.named_parameters():
             if 'attention' in name or 'classifier' in name or 'lm_head' in name:
                 param.requires_grad_(True)
-        if model_args.static_lm_head.lower() in ('yes', 'y', 't', 'true') and hasattr(model, 'lm_head'):
+        if model_args.static_lm_head and hasattr(model, 'lm_head'):
             model.lm_head.requires_grad_(False)
     else:
         model.requires_grad_(True)
-        if model_args.static_embedding.lower() in ('y', 'yes', 't', 'true'):
+        if model_args.static_embedding:
             model.get_input_embeddings().requires_grad_(False)
 
     named_params = [(name, param) for name, param in model.named_parameters() if param.requires_grad]

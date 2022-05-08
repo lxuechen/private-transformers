@@ -155,13 +155,12 @@ class Trainer(transformers.Trainer):
     Adding some functions based on Transformers' Trainer class.
     """
 
-    def __init__(self, model_args=None, privacy_args=None, **kwargs):
+    def __init__(self, model_args=None, privacy_args=None, auxiliary_args=None, **kwargs):
         super(Trainer, self).__init__(**kwargs)
         self.privacy_args = privacy_args
         self.model_args = model_args
-        # --- lxuechen: Heuristic initialization.
+        self.auxiliary_args = auxiliary_args
         self.scaler = torch.cuda.amp.GradScaler(init_scale=128)
-        # ---
 
     # --- lxuechen: Not sure why v4.10.0 removed this function...
     def is_local_master(self) -> bool:
@@ -339,7 +338,6 @@ class Trainer(transformers.Trainer):
                 steps_trained_in_current_epoch = self.global_step % (
                     len(train_dataloader) // self.args.gradient_accumulation_steps
                 )
-
                 logger.info("  Continuing training from checkpoint, will skip to saved global_step")
                 logger.info("  Continuing training from epoch %d", epochs_trained)
                 logger.info("  Continuing training from global step %d", self.global_step)
@@ -365,10 +363,10 @@ class Trainer(transformers.Trainer):
 
         train_iterator = trange(epochs_trained, int(num_train_epochs), desc="Epoch", disable=not self.is_local_master())
         for epoch in train_iterator:
-            # --- Clear gradient before entering a new epochs. ---
-            #   This is ultra important when using gradient accumulation, since grads of micro batches could ooze.
+            # Clear gradient before entering a new epochs.
+            # This is ultra important when using gradient accumulation in privacy training;
+            # grads of micro batches could ooze.
             model.zero_grad(set_to_none=True)
-            # ---
 
             if isinstance(train_dataloader, DataLoader) and isinstance(train_dataloader.sampler, DistributedSampler):
                 train_dataloader.sampler.set_epoch(epoch)
@@ -423,6 +421,12 @@ class Trainer(transformers.Trainer):
                             scheduler=scheduler,
                         )
 
+                        if self.auxiliary_args.eval_spectrum:
+                            from ..spectrum import spectrum_utils
+                            # TODO: Get frozen train loader.
+                            #   turn to double precision, and then turn back to default dtype.
+                            #   store Q (to cpu!) to check if eigenspace changed.
+                            spectrum_utils.make_spectrum_lanczos()
                 else:
                     if not self.privacy_args.non_private:
                         self.optimizer.virtual_step(loss=losses.get("vector_loss"))

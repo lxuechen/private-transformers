@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 
 import transformers
 
+from .common import true_tags
+
 
 @dataclass
 class PrivacyArguments:
@@ -37,8 +39,8 @@ class PrivacyArguments:
     ghost_clipping: str = field(default="no")
 
     def __post_init__(self):
-        self.non_private = self.non_private.lower() in ('y', 'yes')
-        self.ghost_clipping = self.ghost_clipping.lower() in ('y', 'yes')
+        self.non_private = self.non_private.lower() in true_tags  # noqa
+        self.ghost_clipping = self.ghost_clipping.lower() in true_tags  # noqa
 
 
 @dataclass
@@ -52,4 +54,9 @@ class TrainingArguments(transformers.TrainingArguments):
 
     def __post_init__(self):
         super(TrainingArguments, self).__post_init__()
-        self.lr_decay = self.lr_decay.lower() in ('y', 'yes')
+        self.lr_decay = self.lr_decay.lower() in true_tags  # noqa
+
+
+@dataclass
+class AuxiliaryArguments:
+    pass

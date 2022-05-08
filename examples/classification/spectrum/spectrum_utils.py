@@ -10,10 +10,11 @@ import tqdm
 import transformers
 from transformers.data.data_collator import default_data_collator
 
-from . import common, lanczos
-from .common import device
-from .run_classification import DynamicDataTrainingArguments
-from .src.processors import num_labels_mapping
+from . import lanczos
+from ..run_classification import DynamicDataTrainingArguments
+from ..src import common
+from ..src.common import device
+from ..src.processors import num_labels_mapping
 
 
 def filter_params(
