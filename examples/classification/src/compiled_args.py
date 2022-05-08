@@ -36,7 +36,9 @@ class PrivacyArguments:
     accounting_mode: str = field(
         default="rdp_cks", metadata={"help": "One of (`rdp`, `gdp`, `rdp_cks`, `all`)."}
     )
-    ghost_clipping: str = field(default="no")
+    ghost_clipping: str = field(
+        default="no"
+    )
 
     def __post_init__(self):
         self.non_private = self.non_private.lower() in true_tags  # noqa
@@ -59,4 +61,7 @@ class TrainingArguments(transformers.TrainingArguments):
 
 @dataclass
 class AuxiliaryArguments:
-    pass
+    eval_spectrum: str = field(default="no")
+
+    def __post_init__(self):
+        self.eval_spectrum = self.eval_spectrum.lower() in true_tags  # noqa

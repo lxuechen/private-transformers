@@ -20,7 +20,7 @@ from transformers import HfArgumentParser, set_seed
 
 from private_transformers import PrivacyEngine
 from .src.common import true_tags
-from .src.compiled_args import PrivacyArguments, TrainingArguments
+from .src.compiled_args import PrivacyArguments, TrainingArguments, AuxiliaryArguments
 from .src.dataset import FewShotDataset
 from .src.models import (
     BertForPromptFinetuning, RobertaForPromptFinetuning, AlbertForPromptFinetuning, DistilBertForPromptFinetuning,
@@ -66,9 +66,15 @@ class ModelArguments:
         metadata={"help": "Whether to reinitialize the token type embeddings (only for BERT)."}
     )
 
-    static_embedding: str = field(default="no")
-    static_lm_head: str = field(default="no")
-    attention_only: str = field(default="no")
+    static_embedding: str = field(
+        default="no"
+    )
+    static_lm_head: str = field(
+        default="no"
+    )
+    attention_only: str = field(
+        default="no"
+    )
 
     def __post_init__(self):
         self.static_embedding = self.static_embedding.lower() in true_tags  # noqa
@@ -294,9 +300,9 @@ class DynamicTrainingArguments(TrainingArguments):
 
 def main():
     parser = HfArgumentParser(
-        (ModelArguments, DynamicDataTrainingArguments, DynamicTrainingArguments, PrivacyArguments)
+        (ModelArguments, DynamicDataTrainingArguments, DynamicTrainingArguments, PrivacyArguments, AuxiliaryArguments)
     )
-    model_args, data_args, training_args, privacy_args = parser.parse_args_into_dataclasses()
+    model_args, data_args, training_args, privacy_args, auxiliary_args = parser.parse_args_into_dataclasses()
 
     if not os.path.exists(training_args.output_dir):
         print(f"output_dir doesn't exists, mkdir now: {training_args.output_dir}")
@@ -622,6 +628,7 @@ def main():
         args=training_args,
         model_args=model_args,
         privacy_args=privacy_args,
+        auxiliary_args=auxiliary_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         compute_metrics=build_compute_metrics_fn(data_args.task_name)
