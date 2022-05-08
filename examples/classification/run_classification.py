@@ -65,7 +65,8 @@ class ModelArguments:
         metadata={"help": "Whether to reinitialize the token type embeddings (only for BERT)."}
     )
 
-    static_embedding: bool = field(default=False)
+    static_embedding: str = field(default="no")
+    static_lm_head: str = field(default="no")
     attention_only: str = field(default="no")
 
 
@@ -549,14 +550,17 @@ def main():
     print(" | model type: ")
     print(type(model))
 
+    # TODO: There's a bug with non-prompt fine-tuning!
     if model_args.attention_only.lower() in ('yes', 'y', 't', 'true'):
         model.requires_grad_(False)
         for name, param in model.named_parameters():
             if 'attention' in name or 'classifier' in name or 'lm_head' in name:
                 param.requires_grad_(True)
+        if model_args.static_lm_head.lower() in ('yes', 'y', 't', 'true') and hasattr(model, 'lm_head'):
+            model.lm_head.requires_grad_(False)
     else:
         model.requires_grad_(True)
-        if model_args.static_embedding:
+        if model_args.static_embedding.lower() in ('y', 'yes', 't', 'true'):
             model.get_input_embeddings().requires_grad_(False)
 
     named_params = [(name, param) for name, param in model.named_parameters() if param.requires_grad]

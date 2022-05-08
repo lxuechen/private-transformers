@@ -17,6 +17,8 @@ def _get_command(
     target_epsilon,
     few_shot_type,
     attention_only,
+    static_lm_head,
+    static_embedding,
     per_device_train_batch_size=20,
     eval_steps=10,
 ):
@@ -68,7 +70,7 @@ python -m classification.run_classification \
   --evaluation_strategy steps --eval_steps {eval_steps} --evaluate_before_training True \
   --do_train --do_eval \
   --first_sent_limit 200 --other_sent_limit 200 --truncate_head yes \
-  --attention_only {attention_only}
+  --attention_only {attention_only} --static_lm_head {static_lm_head} --static_embedding {static_embedding}
     '''
 
 
@@ -82,6 +84,8 @@ def main(
     non_private="no",
     target_epsilon=8,
     attention_only="no",
+    static_lm_head="no",
+    static_embedding="no",
 ):
     command = _get_command(
         output_dir=output_dir,
@@ -93,6 +97,8 @@ def main(
         target_epsilon=target_epsilon,
         few_shot_type=few_shot_type,
         attention_only=attention_only,
+        static_lm_head=static_lm_head,
+        static_embedding=static_embedding,
     )
     print('Running command:')
     print(command)

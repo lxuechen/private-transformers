@@ -5,4 +5,5 @@ CUDA_VISIBLE_DEVICES=0 python -m classification.run_wrapper \
   --task_name "sst-2" \
   --model_name_or_path "distilroberta-base" \
   --few_shot_type "prompt" \
-  --attention_only "yes"
+  --attention_only "yes" \
+  --static_lm_head "yes"
