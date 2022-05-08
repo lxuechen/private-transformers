@@ -86,6 +86,7 @@ def main(
     attention_only="no",
     static_lm_head="no",
     static_embedding="no",
+    per_device_train_batch_size=20,
 ):
     command = _get_command(
         output_dir=output_dir,
@@ -99,6 +100,7 @@ def main(
         attention_only=attention_only,
         static_lm_head=static_lm_head,
         static_embedding=static_embedding,
+        per_device_train_batch_size=per_device_train_batch_size,
     )
     print('Running command:')
     print(command)
