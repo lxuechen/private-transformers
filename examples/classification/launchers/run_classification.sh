@@ -8,8 +8,8 @@ CUDA_VISIBLE_DEVICES=0 python -m classification.run_wrapper \
   --attention_only "yes" \
   --static_lm_head "yes" \
   --static_embedding "no" \
-  --per_device_train_batch_size 20 \
+  --per_device_train_batch_size 25 \
   --eval_spectrum "yes" \
-  --eval_steps 1 \
-  --max_spectrum_batches 100 \
+  --eval_steps 50 \
+  --max_spectrum_batches 400 \
   --max_lanczos_iter 100
