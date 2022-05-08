@@ -87,6 +87,7 @@ def make_spectrum_lanczos(
     loss_fn: Callable,
     tol=1e-5,
     return_dict=False,
+    verbose=False,
 ):
     model.eval()
 
@@ -104,11 +105,10 @@ def make_spectrum_lanczos(
         logging.warning("Lanczos output failed tri-diagonality check!")
 
     eigenvals, eigenvecs = torch.linalg.eigh(T)
-    logging.warning("Lanczos eigenvalues:")
-    logging.warning(eigenvals)
-    if return_dict:
-        return dict(Q=Q, T=T, eigenvecs=eigenvecs, eigenvals=eigenvals)
-    return eigenvals
+    if verbose:
+        logging.warning("Lanczos eigenvalues:")
+        logging.warning(eigenvals)
+    return dict(Q=Q, T=T, eigenvecs=eigenvecs, eigenvals=eigenvals) if return_dict else eigenvals
 
 
 @torch.no_grad()
@@ -117,6 +117,8 @@ def make_spectrum_exact(
     loader: DataLoader,  # Must be singleton.
     max_batches: int,
     loss_fn: Callable,
+    return_dict=False,
+    verbose=False,
 ):
     model.eval()
 
@@ -134,9 +136,10 @@ def make_spectrum_exact(
     grads = torch.stack(grads)  # (n, d).
     GtG = grads.t() @ grads / max_batches
     eigenvals, eigenvecs = torch.linalg.eigh(GtG)
-    logging.warning("Exact eigenvalues:")
-    logging.warning(eigenvals)
-    return eigenvals
+    if verbose:
+        logging.warning("Exact eigenvalues:")
+        logging.warning(eigenvals)
+    return dict(eigenvecs=eigenvecs, eigenvals=eigenvals) if return_dict else eigenvals
 
 
 def make_model_and_loader(
