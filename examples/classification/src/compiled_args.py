@@ -62,6 +62,8 @@ class TrainingArguments(transformers.TrainingArguments):
 @dataclass
 class AuxiliaryArguments:
     eval_spectrum: str = field(default="no")
+    max_spectrum_batches: int = field(default=100)
+    max_lanczos_iter: int = field(default=100)
 
     def __post_init__(self):
         self.eval_spectrum = self.eval_spectrum.lower() in true_tags  # noqa

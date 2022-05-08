@@ -48,6 +48,7 @@ def make_loss_fn(scale=1.):
     """
 
     def loss_fn(batch, model):
+        device = next(iter(model.parameters())).device
         batch = {key: value.to(device) for key, value in batch.items()}
         logits = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"])
         losses = F.cross_entropy(logits.logits, batch["labels"], reduction="none") * scale
@@ -145,5 +146,5 @@ def test_make_spectrum_lanczos(
 
 
 if __name__ == "__main__":
-    # python -m classification.test_spectrum
+    # python -m classification.spectrum.test_spectrum
     test_make_spectrum_lanczos()

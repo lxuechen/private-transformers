@@ -3,6 +3,7 @@ from typing import Callable
 
 import fire
 from swissknife import utils
+from torch import nn
 import torch.cuda
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -32,6 +33,8 @@ def filter_params(
 
 
 def make_loss(batch: dict, model: transformers.RobertaForSequenceClassification):
+    """Return an unreduced vector loss."""
+    device = next(iter(model.parameters())).device
     batch = {key: value.to(device) for key, value in batch.items()}
     logits = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"])
     losses = F.cross_entropy(logits.logits, batch["labels"], reduction="none")
@@ -39,7 +42,7 @@ def make_loss(batch: dict, model: transformers.RobertaForSequenceClassification)
 
 
 def make_matmul_closure(
-    model: transformers.RobertaForSequenceClassification,
+    model: nn.Module,
     loader: DataLoader,
     max_batches: int,
     loss_fn: Callable,
@@ -77,7 +80,7 @@ def make_matmul_closure(
 
 @torch.no_grad()
 def make_spectrum_lanczos(
-    model: transformers.RobertaForSequenceClassification,
+    model: nn.Module,
     loader: DataLoader,
     max_batches: int,
     max_lanczos_iter: int,
@@ -85,7 +88,7 @@ def make_spectrum_lanczos(
     tol=1e-5,
     return_dict=False,
 ):
-    model.to(device).eval()
+    model.eval()
 
     numel = sum(param.numel() for param in model.parameters() if param.requires_grad)
 
@@ -93,7 +96,7 @@ def make_spectrum_lanczos(
         make_matmul_closure(model=model, loader=loader, max_batches=max_batches, loss_fn=loss_fn),
         max_iter=max_lanczos_iter,
         dtype=torch.get_default_dtype(),
-        device=device,
+        device=next(iter(model.parameters())).device,
         matrix_shape=(numel,),
         tol=tol,
     )
@@ -110,12 +113,12 @@ def make_spectrum_lanczos(
 
 @torch.no_grad()
 def make_spectrum_exact(
-    model: transformers.RobertaForSequenceClassification,
+    model: nn.Module,
     loader: DataLoader,  # Must be singleton.
     max_batches: int,
     loss_fn: Callable,
 ):
-    model.to(device).eval()
+    model.eval()
 
     params = [param for param in model.parameters() if param.requires_grad]
 
@@ -166,6 +169,7 @@ def make_model_and_loader(
         finetuning_task=task_name,
     )
     model = transformers.AutoModelForSequenceClassification.from_pretrained(model_name_or_path, config=config)
+    model.to(device)
     filter_params(model)
 
     return model, train_loader

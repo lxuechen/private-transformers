@@ -420,13 +420,6 @@ class Trainer(transformers.Trainer):
                             logging_loss_scalar=logging_loss_scalar,
                             scheduler=scheduler,
                         )
-
-                        if self.auxiliary_args.eval_spectrum:
-                            from ..spectrum import spectrum_utils
-                            # TODO: Get frozen train loader.
-                            #   turn to double precision, and then turn back to default dtype.
-                            #   store Q (to cpu!) to check if eigenspace changed.
-                            spectrum_utils.make_spectrum_lanczos()
                 else:
                     if not self.privacy_args.non_private:
                         self.optimizer.virtual_step(loss=losses.get("vector_loss"))
@@ -576,6 +569,57 @@ class Trainer(transformers.Trainer):
 
         # Write to disk!
         utils.jdump(self.log_history, os.path.join(self.args.output_dir, 'log_history.json'))
+        # ---
+
+        # ---
+        # Evaluate gradient covariance spectrum for the dimension-dependence analysis project.
+        if self.auxiliary_args.eval_spectrum:
+            from ..spectrum import spectrum_utils
+
+            spectrum_outputs_dir = utils.join(self.args.output_dir, 'spectrum')
+            utils.makedirs(spectrum_outputs_dir, exist_ok=True)
+
+            def loss_fn(batch, model):
+                batch = self._prepare_inputs(inputs=batch)
+                return self.compute_loss(
+                    model=model, inputs=batch, return_outputs=False, return_vector_loss=True
+                )
+
+            # TODO: Need to disable hooks while running this!
+            default_dtype = torch.get_default_dtype()
+            torch.set_default_dtype(torch.float64)  # Slow but accurate.
+            self.model.to(dtype=torch.float64)
+
+            spectrum_loader = DataLoader(
+                self.train_dataset,
+                batch_size=self.args.train_batch_size,
+                shuffle=False,  # Must not shuffle.
+                collate_fn=self.data_collator,
+                drop_last=self.args.dataloader_drop_last,
+                num_workers=self.args.dataloader_num_workers,
+                pin_memory=self.args.dataloader_pin_memory,
+            )
+
+            spectrum_outputs = spectrum_utils.make_spectrum_lanczos(
+                loader=spectrum_loader,
+                model=self.model,
+                max_batches=self.auxiliary_args.max_spectrum_batches,
+                max_lanczos_iter=self.auxiliary_args.max_lanczos_iter,
+                return_dict=True,
+                loss_fn=loss_fn,
+            )
+
+            state_dicts = {
+                key: value.cpu().float() if torch.is_tensor(value) else value
+                for key, value in spectrum_outputs.items()
+            }
+            torch.save(
+                state_dicts,
+                utils.join(spectrum_outputs_dir, f'global_step_{self.global_step:06d}.pt')
+            )
+
+            torch.set_default_dtype(default_dtype)
+            self.model.to(dtype=default_dtype)
         # ---
 
         return logging_loss_scalar

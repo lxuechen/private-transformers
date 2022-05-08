@@ -4,7 +4,7 @@ import os
 
 import fire
 
-from . import common
+from .src import common
 
 
 def _get_command(
@@ -19,9 +19,11 @@ def _get_command(
     attention_only,
     static_lm_head,
     static_embedding,
+    per_device_train_batch_size,
+    eval_steps,
     eval_spectrum,
-    per_device_train_batch_size=20,
-    eval_steps=10,
+    max_spectrum_batches,
+    max_lanczos_iter,
 ):
     task_name_to_factor = {
         "sst-2": 1, "qnli": 2, "qqp": 6, "mnli": 6,
@@ -72,7 +74,7 @@ python -m classification.run_classification \
   --do_train --do_eval \
   --first_sent_limit 200 --other_sent_limit 200 --truncate_head yes \
   --attention_only {attention_only} --static_lm_head {static_lm_head} --static_embedding {static_embedding} \
-  --eval_spectrum {eval_spectrum}
+  --eval_spectrum {eval_spectrum} --max_spectrum_batches {max_spectrum_batches} --max_lanczos_iter {max_lanczos_iter}
     '''
 
 
@@ -88,8 +90,11 @@ def main(
     attention_only="no",
     static_lm_head="no",
     static_embedding="no",
-    eval_spectrum="no",
     per_device_train_batch_size=20,
+    eval_steps=10,
+    eval_spectrum="no",
+    max_spectrum_batches=2,
+    max_lanczos_iter=2,
 ):
     command = _get_command(
         output_dir=output_dir,
@@ -104,7 +109,10 @@ def main(
         static_lm_head=static_lm_head,
         static_embedding=static_embedding,
         per_device_train_batch_size=per_device_train_batch_size,
+        eval_steps=eval_steps,
         eval_spectrum=eval_spectrum,
+        max_spectrum_batches=max_spectrum_batches,
+        max_lanczos_iter=max_lanczos_iter,
     )
     print('Running command:')
     print(command)
