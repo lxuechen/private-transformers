@@ -915,6 +915,9 @@ def _eps_from_gdp(
     **_,
 ):
     """Get the ε in (ε, δ)-DP from f-DP accounting."""
+    if steps == 0:
+        return np.nan, np.nan
+
     epochs = steps * sample_rate
     if mode == "poisson":
         eps_fn = gdp_accounting.compute_eps_poisson
@@ -945,6 +948,9 @@ def _eps_from_glw(
     eps_error=0.05,
     **_,
 ):
+    if steps == 0:
+        return np.nan, np.nan
+
     from prv_accountant import Accountant
     accountant = Accountant(
         noise_multiplier=sigma,
