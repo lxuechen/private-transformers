@@ -62,7 +62,7 @@ class PrivacyEngine(object):
             module: The PyTorch module for which per-sample gradient is required.
                 Setting the `requires_grad` attribute of a parameter to False
                 disables the per-sample gradient accumulation.
-            batch_size: The expected lot size.
+            batch_size: The lot size.
             sample_size: Size of dataset.
             max_grad_norm: The maximum 2-norm for gradient clipping.
             epochs: The number of epochs for training.

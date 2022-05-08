@@ -7,4 +7,5 @@ CUDA_VISIBLE_DEVICES=0 python -m classification.run_wrapper \
   --few_shot_type "finetune" \
   --attention_only "no" \
   --static_lm_head "no" \
-  --per_device_train_batch_size 50
+  --static_embedding "no" \
+  --per_device_train_batch_size 20
