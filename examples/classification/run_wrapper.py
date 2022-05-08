@@ -19,6 +19,7 @@ def _get_command(
     attention_only,
     static_lm_head,
     static_embedding,
+    randomly_initialize,
     per_device_train_batch_size,
     eval_steps,
     eval_spectrum,
@@ -74,6 +75,7 @@ python -m classification.run_classification \
   --do_train --do_eval \
   --first_sent_limit 200 --other_sent_limit 200 --truncate_head yes \
   --attention_only {attention_only} --static_lm_head {static_lm_head} --static_embedding {static_embedding} \
+  --randomly_initialize {randomly_initialize} \
   --eval_spectrum {eval_spectrum} --max_spectrum_batches {max_spectrum_batches} --max_lanczos_iter {max_lanczos_iter}
     '''
 
@@ -95,6 +97,7 @@ def main(
     eval_spectrum="no",
     max_spectrum_batches=2,
     max_lanczos_iter=2,
+    randomly_initialize="no",
 ):
     command = _get_command(
         output_dir=output_dir,
@@ -113,6 +116,7 @@ def main(
         eval_spectrum=eval_spectrum,
         max_spectrum_batches=max_spectrum_batches,
         max_lanczos_iter=max_lanczos_iter,
+        randomly_initialize=randomly_initialize,
     )
     print('Running command:')
     print(command)

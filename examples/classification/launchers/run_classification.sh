@@ -1,5 +1,5 @@
 #!/bin/sh
-
+# bash classification/launchers/run_classification.sh
 CUDA_VISIBLE_DEVICES=0 python -m classification.run_wrapper \
   --output_dir "/mnt/disks/disk-2/dump/classification/test" \
   --task_name "sst-2" \
@@ -12,4 +12,5 @@ CUDA_VISIBLE_DEVICES=0 python -m classification.run_wrapper \
   --eval_spectrum "yes" \
   --eval_steps 50 \
   --max_spectrum_batches 400 \
-  --max_lanczos_iter 100
+  --max_lanczos_iter 100 \
+  --randomly_initialize "yes"

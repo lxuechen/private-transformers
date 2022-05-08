@@ -76,10 +76,16 @@ class ModelArguments:
         default="no"
     )
 
+    randomly_initialize: str = field(
+        default="no",
+        metadata={"help": "Randomly initialize the model; useful only for ablation studies."}
+    )
+
     def __post_init__(self):
         self.static_embedding = self.static_embedding.lower() in true_tags  # noqa
         self.static_lm_head = self.static_lm_head.lower() in true_tags  # noqa
         self.attention_only = self.attention_only.lower() in true_tags  # noqa
+        self.randomly_initialize = self.randomly_initialize.lower() in true_tags  # noqa
 
 
 @dataclass
@@ -571,6 +577,9 @@ def main():
         model.requires_grad_(True)
         if model_args.static_embedding:
             model.get_input_embeddings().requires_grad_(False)
+
+    if model_args.randomly_initialize:
+        model.init_weights()
 
     named_params = [(name, param) for name, param in model.named_parameters() if param.requires_grad]
     print('Params to update: ')
