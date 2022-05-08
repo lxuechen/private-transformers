@@ -585,7 +585,6 @@ class Trainer(transformers.Trainer):
                     model=model, inputs=batch, return_outputs=False, return_vector_loss=True
                 )
 
-            # TODO: Need to disable hooks while running this!
             default_dtype = torch.get_default_dtype()
             torch.set_default_dtype(torch.float64)  # Slow but accurate.
             self.model.to(dtype=torch.float64)
@@ -600,13 +599,15 @@ class Trainer(transformers.Trainer):
                 pin_memory=self.args.dataloader_pin_memory,
             )
 
+            # No per-sample grads accumulated here, since `model.eval()` called internally.
             spectrum_outputs = spectrum_utils.make_spectrum_lanczos(
                 loader=spectrum_loader,
                 model=self.model,
                 max_batches=self.auxiliary_args.max_spectrum_batches,
                 max_lanczos_iter=self.auxiliary_args.max_lanczos_iter,
-                return_dict=True,
                 loss_fn=loss_fn,
+                return_dict=True,
+                verbose=True,
             )
 
             state_dicts = {
