@@ -404,7 +404,8 @@ class Trainer(transformers.Trainer):
                         torch.nn.utils.clip_grad_norm_(model.parameters(), self.args.max_grad_norm)
                         optimizer.step()
                     else:
-                        self.optimizer.step(loss=losses.get("vector_loss"))
+                        vector_loss = losses.get("vector_loss")
+                        self.optimizer.step(loss=vector_loss)
 
                     scheduler.step()
                     model.zero_grad(set_to_none=True)
