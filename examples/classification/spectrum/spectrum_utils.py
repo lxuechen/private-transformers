@@ -270,7 +270,7 @@ def plot_spectrum_gauss_quadrature(
         weights = this_eigenvecs[0, :] ** 2.
         stems.append(dict(locs=locations, heads=weights, label=label))
 
-    utils.plot_wrapper(stems=stems, options=dict(xlabel="$\lambda$", ylabel="$w$"))
+    utils.plot_wrapper(stems=stems, options=dict(xlabel="$\lambda$", ylabel="$w$", yscale='log', xscale='log'))
 
 
 if __name__ == "__main__":
