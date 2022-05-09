@@ -262,13 +262,14 @@ def plot_spectrum_gauss_quadrature(
         labels = [labels]
 
     stems = []
-    for i, (this_eigenvecs, this_eigenvals) in utils.zip_(eigenvecs, eigenvals):
+    for i, (this_eigenvecs, this_eigenvals) in enumerate(utils.zip_(eigenvecs, eigenvals)):
         if torch.is_tensor(this_eigenvecs):
             this_eigenvecs = this_eigenvecs.cpu().numpy()
         if torch.is_tensor(this_eigenvals):
             this_eigenvals = this_eigenvals.cpu().numpy()
 
         locations = this_eigenvals
+        this_eigenvecs /= np.sqrt(np.sum(this_eigenvecs ** 2., axis=1, keepdims=True))
         weights = this_eigenvecs[0, :] ** 2.
         stem = dict(locs=locations, heads=weights)
         if labels is not None:
