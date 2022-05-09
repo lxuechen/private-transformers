@@ -1,7 +1,8 @@
 import logging
-from typing import Callable
+from typing import Callable, Sequence, Union, Optional
 
 import fire
+import numpy as np
 from swissknife import utils
 from torch import nn
 import torch.cuda
@@ -244,6 +245,32 @@ def main(
         dict(**kwargs, **outputs),
         dump_path,
     )
+
+
+def plot_spectrum_gauss_quadrature(
+    eigenvals: Union[torch.Tensor, Sequence[torch.Tensor], np.ndarray, Sequence[np.ndarray]],
+    eigenvecs: Union[torch.Tensor, Sequence[torch.Tensor], np.ndarray, Sequence[np.ndarray]],
+    labels=Optional[Union[str, Sequence[str]]],
+):
+    if isinstance(eigenvals, (np.ndarray, torch.Tensor)):
+        eigenvals = [eigenvals]
+    if isinstance(eigenvecs, (np.ndarray, torch.Tensor)):
+        eigenvecs = [eigenvecs]
+    if isinstance(labels, str):
+        labels = [labels]
+
+    stems = []
+    for this_eigenvecs, this_eigenvals, label in utils.zip_(eigenvecs, eigenvals, labels):
+        if torch.is_tensor(this_eigenvecs):
+            this_eigenvecs = this_eigenvecs.cpu().numpy()
+        if torch.is_tensor(this_eigenvals):
+            this_eigenvals = this_eigenvals.cpu().numpy()
+
+        locations = this_eigenvals
+        weights = this_eigenvecs[0, :] ** 2.
+        stems.append(dict(locs=locations, heads=weights, label=label))
+
+    utils.plot_wrapper(stems=stems, options=dict(xlabel="$\lambda$", ylabel="$w$"))
 
 
 if __name__ == "__main__":
