@@ -10,22 +10,18 @@ import torch
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 torch.set_default_dtype(torch.float64)
 
-n = 10000
-d = 100
+n = 50000
+d = 50
 R = 1
 C = 1
 sum_sqrt = torch.sum(torch.arange(1, d + 1) ** -.5)  # sum_j 1 / sqrt(j)
-G0 = 1 / 4 * C ** 2 / d
+G0 = 1 / 2 * C ** 2 / d
 
 beta_opt = torch.full(fill_value=.5 / math.sqrt(d), size=(d,), device=device)  # 2-norm == 0.5; within radius-R ball.
 mu_x = torch.zeros(size=(d,), device=device)
 si_x_decay = math.sqrt(G0) * torch.sqrt(torch.arange(1, d + 1, device=device) ** -.5)  # standard deviation.
 si_x_const = math.sqrt(G0) * torch.ones(size=(d,), device=device)
 sensitivity = 2 / n * C ** 2 * R
-
-# Per-step epsilon and delta.
-epsilon = 1
-delta = 1 / n ** 1.1
 
 
 def make_data(mode="decay"):
@@ -39,10 +35,13 @@ def make_data(mode="decay"):
     x = mu_x[None, :] + si_x[None, :] * torch.randn(size=(n, d), device=device)
     xt = x * torch.clamp_max(C / x.norm(2, dim=1, keepdim=True), max=1.)  # Almost no clipping happening here.
     yt = xt @ beta_opt  # no noise.
+
+    num_clipped = (x.norm(2, dim=1) > C).sum(dim=0)
+    print(f'num_clipped: {num_clipped}')
     return xt, yt
 
 
-def train_one_step(x, y, beta, lr):
+def train_one_step(x, y, beta, lr, epsilon, delta):
     residuals = (x @ beta - y)
     grad = (residuals[:, None] * x).mean(dim=0)
     gaussian_mechanism_variance = 2. * math.log(1.25 / delta) * sensitivity ** 2. / epsilon ** 2.
@@ -60,23 +59,29 @@ def evaluate(x, y, beta):
 
 
 @torch.no_grad()
-def train(x, y, num_steps, eval_steps, lr):
+def train(x, y, num_steps, eval_steps, lr, epsilon, delta):
     beta = torch.zeros(size=(d,))
     beta_avg = beta.clone()
-    for global_step in range(1, num_steps + 1):
+    for global_step in range(0, num_steps):
         if global_step % eval_steps == 0:
             mse, dis = evaluate(x=x, y=y, beta=beta_avg)
             logging.warning(f"global_step: {global_step}, mse: {mse:.6f}, iterate dist: {dis:.6f}")
-        beta = train_one_step(x=x, y=y, beta=beta, lr=lr)
+        beta = train_one_step(x=x, y=y, beta=beta, lr=lr, epsilon=epsilon, delta=delta)
         beta_avg = beta_avg * global_step / (global_step + 1) + beta / (global_step + 1)
+    mse, dis = evaluate(x=x, y=y, beta=beta_avg)
+    logging.warning(f"final, mse: {mse:.6f}, iterate dist: {dis:.6f}")
 
 
-def main(num_steps=1000, eval_steps=50, lr=0.1):
+def main(num_steps=1000, eval_steps=50, lr=0.5, epsilon=0.02, delta=1 / n ** 1.1):
     x, y = make_data(mode="decay")
-    train(x, y, num_steps=num_steps, eval_steps=eval_steps, lr=lr)
+    train(x, y, num_steps=num_steps, eval_steps=eval_steps, lr=lr, epsilon=epsilon, delta=delta)
 
     x, y = make_data(mode="const")
-    train(x, y, num_steps=num_steps, eval_steps=eval_steps, lr=lr)
+    train(x, y, num_steps=num_steps, eval_steps=eval_steps, lr=lr, epsilon=epsilon, delta=delta)
+
+    deltap = delta * 10
+    epsilonp = math.sqrt(2 * num_steps * math.log(1 / deltap)) * epsilon + num_steps * epsilon * (math.exp(epsilon) - 1)
+    print(epsilonp, deltap)
 
 
 if __name__ == "__main__":
