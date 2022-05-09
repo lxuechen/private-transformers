@@ -252,6 +252,7 @@ def plot_spectrum_gauss_quadrature(
     eigenvecs: Union[torch.Tensor, Sequence[torch.Tensor], np.ndarray, Sequence[np.ndarray]],
     labels=Optional[Union[str, Sequence[str]]],
     linefmts=Optional[Union[str, Sequence[str]]],
+    markerfmts=Optional[Union[str, Sequence[str]]],
 ):
     if isinstance(eigenvals, (np.ndarray, torch.Tensor)):
         eigenvals = [eigenvals]
@@ -261,7 +262,7 @@ def plot_spectrum_gauss_quadrature(
         labels = [labels]
 
     stems = []
-    for this_eigenvecs, this_eigenvals, label, linefmt in utils.zip_(eigenvecs, eigenvals, labels, linefmts):
+    for i, (this_eigenvecs, this_eigenvals) in utils.zip_(eigenvecs, eigenvals):
         if torch.is_tensor(this_eigenvecs):
             this_eigenvecs = this_eigenvecs.cpu().numpy()
         if torch.is_tensor(this_eigenvals):
@@ -269,7 +270,15 @@ def plot_spectrum_gauss_quadrature(
 
         locations = this_eigenvals
         weights = this_eigenvecs[0, :] ** 2.
-        stems.append(dict(locs=locations, heads=weights, label=label, linefmt=linefmt))
+        stem = dict(locs=locations, heads=weights)
+        if labels is not None:
+            stem["label"] = labels[i]
+        if linefmts is not None:
+            stem["linefmt"] = linefmts[i]
+        if markerfmts is not None:
+            stem["markerfmt"] = markerfmts[i]
+
+        stems.append(stem)
 
     utils.plot_wrapper(stems=stems, options=dict(xlabel="$\lambda$", ylabel="$w$", yscale='log', xscale='log'))
 
