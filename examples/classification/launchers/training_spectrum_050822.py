@@ -22,8 +22,8 @@ def _get_cmd(randomly_initialize: str, model_name_or_path="distilroberta-base"):
   --static_embedding "no" \
   --per_device_train_batch_size 25 \
   --eval_spectrum "yes" \
-  --eval_steps 50 \
-  --max_spectrum_batches 200 \
+  --eval_steps 60 \
+  --max_spectrum_batches 100 \
   --max_lanczos_iter 100 \
   --randomly_initialize {randomly_initialize}
 '''
