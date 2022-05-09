@@ -250,9 +250,10 @@ def main(
 def plot_spectrum_gauss_quadrature(
     eigenvals: Union[torch.Tensor, Sequence[torch.Tensor], np.ndarray, Sequence[np.ndarray]],
     eigenvecs: Union[torch.Tensor, Sequence[torch.Tensor], np.ndarray, Sequence[np.ndarray]],
-    labels=Optional[Union[str, Sequence[str]]],
-    linefmts=Optional[Union[str, Sequence[str]]],
-    markerfmts=Optional[Union[str, Sequence[str]]],
+    labels: Optional[Union[str, Sequence[str]]] = None,
+    linefmts: Optional[Union[str, Sequence[str]]] = None,
+    markerfmts: Optional[Union[str, Sequence[str]]] = None,
+    options: Optional[dict] = None,
 ):
     if isinstance(eigenvals, (np.ndarray, torch.Tensor)):
         eigenvals = [eigenvals]
@@ -281,7 +282,7 @@ def plot_spectrum_gauss_quadrature(
 
         stems.append(stem)
 
-    utils.plot_wrapper(stems=stems, options=dict(xlabel="$\lambda$", ylabel="$w$", yscale='log', xscale='log'))
+    utils.plot_wrapper(stems=stems, options=options)
 
 
 if __name__ == "__main__":
