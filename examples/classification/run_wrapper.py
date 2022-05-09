@@ -12,6 +12,7 @@ def _get_command(
     output_dir,
     model_name_or_path,
     data_dir,
+    learning_rate,
     ghost_clipping,
     non_private,
     target_epsilon,
@@ -21,6 +22,7 @@ def _get_command(
     static_embedding,
     randomly_initialize,
     per_device_train_batch_size,
+    batch_size,
     eval_steps,
     eval_spectrum,
     max_spectrum_batches,
@@ -31,12 +33,13 @@ def _get_command(
     }
     factor = task_name_to_factor[task_name]
 
-    base_batch_size = 1000
-    base_num_train_epochs = 3
+    if batch_size is None:
+        base_batch_size = 1000
+        # This batch size selection roughly ensures the sampling rates on different
+        # datasets are in the same ballpark.
+        batch_size = int(base_batch_size * factor)
 
-    # This batch size selection roughly ensures the sampling rates on different
-    # datasets are in the same ballpark.
-    batch_size = int(base_batch_size * factor)
+    base_num_train_epochs = 3
     num_train_epochs = int(base_num_train_epochs * factor)
     gradient_accumulation_steps = batch_size // per_device_train_batch_size
     data_dir = f"{data_dir}/{common.task_name2suffix_name[task_name]}"
@@ -66,7 +69,7 @@ python -m classification.run_classification \
   --gradient_accumulation_steps {gradient_accumulation_steps} \
   --per_device_eval_batch_size 8 \
   --per_example_max_grad_norm 0.1 --ghost_clipping {ghost_clipping} \
-  --learning_rate 0.0005 \
+  --learning_rate {learning_rate} \
   --lr_decay yes \
   --adam_epsilon 1e-08 \
   --weight_decay 0 \
@@ -86,6 +89,7 @@ def main(
     few_shot_type="prompt",
     model_name_or_path="roberta-base",
     data_dir="classification/data/original",
+    learning_rate=0.0005,
     ghost_clipping="yes",
     non_private="no",
     target_epsilon=8,
@@ -98,12 +102,14 @@ def main(
     max_spectrum_batches=2,
     max_lanczos_iter=2,
     randomly_initialize="no",
+    batch_size=None,
 ):
     command = _get_command(
         output_dir=output_dir,
         task_name=task_name,
         model_name_or_path=model_name_or_path,
         data_dir=data_dir,
+        learning_rate=learning_rate,
         ghost_clipping=ghost_clipping,
         non_private=non_private,
         target_epsilon=target_epsilon,
@@ -117,6 +123,7 @@ def main(
         max_spectrum_batches=max_spectrum_batches,
         max_lanczos_iter=max_lanczos_iter,
         randomly_initialize=randomly_initialize,
+        batch_size=batch_size,
     )
     print('Running command:')
     print(command)

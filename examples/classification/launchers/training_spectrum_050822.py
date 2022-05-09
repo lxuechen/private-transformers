@@ -1,5 +1,7 @@
 """
 Evaluate the spectrum during training.
+
+python -m classification.launchers.training_spectrum_050822
 """
 
 import fire
