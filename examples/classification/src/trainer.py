@@ -18,6 +18,7 @@
 The Trainer class, to easily train a 🤗 Transformers from scratch or finetune it on a new task.
 """
 import collections
+import gc
 import json
 import os
 from typing import Dict, Optional, Any, Union
@@ -621,6 +622,10 @@ class Trainer(transformers.Trainer):
 
             torch.set_default_dtype(default_dtype)
             self.model.to(dtype=default_dtype)
+
+            del spectrum_outputs, state_dicts
+            gc.collect()
+            torch.cuda.empty_cache()
         # ---
 
         return logging_loss_scalar

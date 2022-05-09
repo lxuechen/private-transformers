@@ -23,7 +23,7 @@ def _get_cmd(randomly_initialize: str, model_name_or_path="distilroberta-base"):
   --per_device_train_batch_size 25 \
   --eval_spectrum "yes" \
   --eval_steps 50 \
-  --max_spectrum_batches 400 \
+  --max_spectrum_batches 200 \
   --max_lanczos_iter 100 \
   --randomly_initialize {randomly_initialize}
 '''
