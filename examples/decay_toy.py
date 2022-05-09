@@ -23,7 +23,7 @@ si_x = torch.sqrt(M * torch.arange(1, d + 1) ** -.5)  # standard deviation.
 sensitivity = 2 / n * C ** 2 * R
 
 # Per-step epsilon and delta.
-epsilon = 0.1
+epsilon = 1
 delta = 1 / n ** 1.1
 
 
@@ -61,7 +61,7 @@ def train(num_steps, eval_steps, lr):
             logging.warning(f"global_step: {global_step}, mse: {mse:.4f}")
 
 
-def main(num_steps=100, eval_steps=1, lr=1e-4):
+def main(num_steps=1000, eval_steps=1, lr=1):
     train(num_steps=num_steps, eval_steps=eval_steps, lr=lr)
 
 
