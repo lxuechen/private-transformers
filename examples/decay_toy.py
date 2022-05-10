@@ -31,27 +31,28 @@ class Data:
     si_x: torch.Tensor
 
 
-def make_data(mode="decay", n=100000, d=50):
+def make_data(mode="decay", n=100000, d=50, dtrue=10, dmax=1000):
+    assert d >= dtrue
     R = 1  # |beta| <= R/2. |beta_*| <= R/2.
     C = 1  # Bound on |x|_2.
 
-    sum_inv_sqrt = torch.sum(torch.arange(1, d + 1) ** -.5)  # sum_j 1 / sqrt(j)
-    sum_inv = torch.sum(torch.arange(1, d + 1) ** -1.)
+    sum_inv_sqrt = torch.sum(torch.arange(1, dmax + 1) ** -.5)  # sum_j 1 / sqrt(j)
+    sum_inv = torch.sum(torch.arange(1, dmax + 1) ** -1.)
 
     # Lipschitz constant of objective; should not depend on dimension!!! Bound on |xx^t (beta - beta_*)|_2.
     G0 = C ** 2 * R
     sensitivity = 2 / n * G0
 
-    # "variance inflation" must be adapted to the dimension, since high-dim => concentrate faster.
-    M_decay = 1 / (2 + 10 / d) * C ** 2 / sum_inv
-    M_const = 1 / (2 + 10 / d) * C ** 2 / d
+    # These should be dimension-independent => G_k.
+    M_decay = 1 / 2 * C ** 2 / sum_inv
+    M_const = 1 / 2 * C ** 2 / dmax
 
     # beta_* = (0.25, 0.25, ..., 0.25) / sqrt(d).
     # |beta_*|_2 <= R/2.
     # |beta|_2 <= R/2
-    beta_opt = torch.full(
-        fill_value=0.25 / math.sqrt(d), size=(d,), device=device
-    )
+    beta_opt = torch.zeros(size=(d,), device=device)
+    beta_opt[:dtrue] = 0.25 / math.sqrt(dtrue)  # True problem is low dimensional.
+
     mu_x = torch.zeros(size=(d,), device=device)
     # decay variance M * (1, 2 ** -0.5, ..., d ** -0.5) =>
     #   |x|_2^2 concentrates to M * sum_sqrt; smaller than C^2, so almost no clipping.
@@ -148,10 +149,14 @@ def main(
     eval_steps=10000, weight_decay=1e-7,
     epsilon=3, delta=1e-6,
 ):
-    dims = (2, 5, 10, 20, 50, 100, 200,)
+    dims = (10, 50, 100, 500, 1000)
     num_steps_list = (10, 50, 100, 400, 700, 1000, 1300, 1600, 1900, 2200, 3000, 5000,)
     lrs = (1e-2, 3e-2, 1e-1, 3e-1, 1, 3, 10)
     seeds = (42, 96, 10000)
+
+    # num_steps_list = (10,)
+    # lrs = (1e-2,)
+    # seeds = (42,)
 
     losses_decay = []
     losses_const = []
