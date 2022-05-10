@@ -193,5 +193,5 @@ def main(
 
 
 if __name__ == "__main__":
-    # python decay_toy.py --img_path "/mnt/disks/disk-2/dump/spectrum/toy/toy.png"
+    # python decay_toy.py --img_dir "/mnt/disks/disk-2/dump/spectrum/toy"
     fire.Fire(main)
