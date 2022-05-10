@@ -17,7 +17,7 @@ C = 1
 sum_sqrt = torch.sum(torch.arange(1, d + 1) ** -.5)  # sum_j 1 / sqrt(j)
 G0 = 1 / 2 * C ** 2 / d
 
-beta_opt = torch.full(fill_value=.5 / math.sqrt(d), size=(d,), device=device)  # 2-norm == 0.5; within radius-R ball.
+beta_opt = torch.full(fill_value=0.25 / math.sqrt(d), size=(d,), device=device)  # 2-norm == 0.25; within radius-R ball.
 mu_x = torch.zeros(size=(d,), device=device)
 si_x_decay = math.sqrt(G0) * torch.sqrt(torch.arange(1, d + 1, device=device) ** -.5)  # standard deviation.
 si_x_const = math.sqrt(G0) * torch.ones(size=(d,), device=device)
@@ -44,11 +44,11 @@ def make_data(mode="decay"):
 
 def train_one_step(x, y, beta, lr, epsilon, delta, weight_decay):
     residuals = (x @ beta - y)
-    grad = (residuals[:, None] * x).mean(dim=0)
+    grad = (residuals[:, None] * x).mean(dim=0)  # avg gradient.
     gaussian_mechanism_variance = 2. * math.log(1.25 / delta) * sensitivity ** 2. / epsilon ** 2.
     grad_priv = grad + torch.randn_like(grad) * math.sqrt(gaussian_mechanism_variance)
     beta -= lr * (grad_priv + weight_decay * beta)
-    beta = beta * torch.clamp_max(R / beta.norm(2), max=1.)  # projection of beta into the radius-R ball.
+    beta = beta * torch.clamp_max(.5 * R / beta.norm(2), max=1.)  # projection of beta into the radius-R ball.
     return beta
 
 
@@ -99,7 +99,7 @@ def make_per_step_privacy_spending(
 
 
 def main(
-    num_steps=1000, eval_steps=50, lr=5, weight_decay=1e-5,
+    num_steps=1000, eval_steps=50, lr=1, weight_decay=1e-6,
     epsilon=3, delta=1 / n ** 1.1,
 ):
     per_step_epsilon, per_step_delta = make_per_step_privacy_spending(
