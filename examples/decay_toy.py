@@ -137,7 +137,7 @@ def main(
     eval_steps=10000, weight_decay=1e-7,
     epsilon=3, delta=1e-6,
 ):
-    dims = (10, 20, 50,)
+    dims = (2, 5, 10, 20, 50, 100,)
     num_steps_list = (100, 400, 700, 1000, 1300, 1600, 1900, 2200, 3000, 5000,)
     lrs = (1e-1, 2e-1, 5e-1, 1, 2, 5,)
     seeds = (42, 96, 10000)
@@ -176,10 +176,10 @@ def main(
     utils.plot_wrapper(
         img_path=img_path,
         plots=[
-            dict(x=dims, y=losses_decay, label='decay'),
-            dict(x=dims, y=losses_const, label='const'),
+            dict(x=dims, y=losses_decay, label='decay', marker="x"),
+            dict(x=dims, y=losses_const, label='const', marker="x"),
         ],
-        options=dict(xlabel="$d$", ylabel="$F(\\bar{x})$")
+        options=dict(xlabel="$d$", ylabel="$\mathbb{E}[ F(\\bar{x}) ]$")
     )
 
 
