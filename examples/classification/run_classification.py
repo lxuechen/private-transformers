@@ -569,7 +569,7 @@ def main():
     if model_args.attention_only:
         model.requires_grad_(False)
         for name, param in model.named_parameters():
-            if 'attention' in name or 'classifier' in name or 'lm_head' in name:
+            if 'query' in name or 'value' in name or 'classifier' in name or 'lm_head' in name:
                 param.requires_grad_(True)
         if model_args.static_lm_head and hasattr(model, 'lm_head'):
             model.lm_head.requires_grad_(False)
