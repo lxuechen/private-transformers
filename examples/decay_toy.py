@@ -3,6 +3,7 @@ Toy example of spectral decay.
 """
 import logging
 import math
+import time
 
 import fire
 import numpy as np
@@ -62,6 +63,7 @@ def make_data(mode="decay", n=100000, d=50):
     x = mu_x[None, :] + si_x[None, :] * torch.randn(size=(n, d), device=device)
     num_clipped = (x.norm(2, dim=1) > C).sum(dim=0)
     logging.warning(f"Create data in mode: {mode}; number of examples clipped: {num_clipped}")
+    time.sleep(2)
 
     x = x * torch.clamp_max(C / x.norm(2, dim=1, keepdim=True), max=1.)  # Almost no clipping happening here.
     y = x @ beta_opt  # no noise.
