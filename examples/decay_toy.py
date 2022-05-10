@@ -149,7 +149,7 @@ def main(
             per_step_epsilon, per_step_delta = make_per_step_privacy_spending(
                 target_epsilon=epsilon, target_delta=delta, num_steps=num_steps,
             )
-            for lr in (1, 2, 5, 1e-1, 2e-1, 5e-1):
+            for lr in (1e-1, 2e-1, 5e-1, 1, 2, 5,):
                 kwargs = dict(
                     num_steps=num_steps, eval_steps=eval_steps, lr=lr, weight_decay=weight_decay,
                     epsilon=per_step_epsilon, delta=per_step_delta,
