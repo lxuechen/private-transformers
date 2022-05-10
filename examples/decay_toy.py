@@ -10,10 +10,10 @@ import numpy as np
 from swissknife import utils
 import torch
 import tqdm
+import dataclasses
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 torch.set_default_dtype(torch.float64)
-import dataclasses
 
 
 @dataclasses.dataclass
@@ -33,7 +33,7 @@ class Data:
 
 def make_data(mode="decay", n=100000, d=50, dtrue=10, dmax=1000):
     assert d >= dtrue
-    R = 1  # |beta| <= R/2. |beta_*| <= R/2.
+    R = 2  # |beta| <= R/2. |beta_*| <= R/2.
     C = 1  # Bound on |x|_2.
 
     sum_inv_sqrt = torch.sum(torch.arange(1, dmax + 1) ** -.5)  # sum_j 1 / sqrt(j)
@@ -149,7 +149,7 @@ def main(
     eval_steps=10000, weight_decay=1e-7,
     epsilon=3, delta=1e-6,
 ):
-    dims = (10, 50, 100, 500, 1000)
+    dims = (10, 50, 100,)
     num_steps_list = (10, 50, 100, 400, 700, 1000, 1300, 1600, 1900, 2200, 3000, 5000,)
     lrs = (1e-2, 3e-2, 1e-1, 3e-1, 1, 3, 10)
     seeds = (42, 96, 10000)
