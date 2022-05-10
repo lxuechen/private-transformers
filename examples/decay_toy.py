@@ -5,7 +5,9 @@ import logging
 import math
 
 import fire
+from swissknife import utils
 import torch
+import tqdm
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 torch.set_default_dtype(torch.float64)
@@ -27,7 +29,7 @@ class Data:
     si_x: torch.Tensor
 
 
-def make_data(mode="decay", n=50000, d=50):
+def make_data(mode="decay", n=100000, d=50):
     R = 1
     C = 1
     sum_sqrt = torch.sum(torch.arange(1, d + 1) ** -.5)  # sum_j 1 / sqrt(j)
@@ -88,7 +90,7 @@ def evaluate(data, beta):
 
 @torch.no_grad()
 def train(data, num_steps, eval_steps, lr, epsilon, delta, weight_decay):
-    beta = torch.zeros(size=(data.x.size(1),))
+    beta = torch.zeros(size=(data.x.size(1),), device=device)
     beta_avg = beta.clone()
     for global_step in range(0, num_steps):
         if global_step % eval_steps == 0:
@@ -128,26 +130,48 @@ def make_per_step_privacy_spending(
 
 
 def main(
-    num_steps=2000, eval_steps=50, lr=1e-2, weight_decay=1e-6,
-    epsilon=3, delta=1e-7,
+    eval_steps=50, weight_decay=1e-7,
+    epsilon=3, delta=1e-6,
 ):
-    per_step_epsilon, per_step_delta = make_per_step_privacy_spending(
-        target_epsilon=epsilon, target_delta=delta, num_steps=num_steps,
-    )
-    logging.warning(f'per_step_epsilon: {per_step_epsilon}, per_step_delta: {per_step_delta}')
+    # python decay_toy.py
+    # dims = (10, 20, 50, 100, 200, 500)
+    num_steps_list = (100, 400, 700, 1000, 1300, 1600, 1900, 2200, 3000, 5000)
 
-    data_decay = make_data(mode='decay')
-    train(
-        data_decay,
-        num_steps=num_steps, eval_steps=eval_steps, lr=lr, weight_decay=weight_decay,
-        epsilon=per_step_epsilon, delta=per_step_delta,
-    )
+    dims = (10, 20)
 
-    data_const = make_data(mode="const")
-    train(
-        data_const,
-        num_steps=num_steps, eval_steps=eval_steps, lr=lr, weight_decay=weight_decay,
-        epsilon=per_step_epsilon, delta=per_step_delta,
+    losses_decay = []
+    losses_const = []
+    for d in dims:
+        data_decay = make_data(mode='decay', d=d)
+        data_const = make_data(mode="const", d=d)
+
+        loss_decay = utils.MinMeter()
+        loss_const = utils.MinMeter()
+        for num_steps in tqdm.tqdm(num_steps_list, desc="num steps"):
+            per_step_epsilon, per_step_delta = make_per_step_privacy_spending(
+                target_epsilon=epsilon, target_delta=delta, num_steps=num_steps,
+            )
+            for lr in (1, 2, 5, 1e-1, 2e-1, 5e-1):
+                kwargs = dict(
+                    num_steps=num_steps, eval_steps=eval_steps, lr=lr, weight_decay=weight_decay,
+                    epsilon=per_step_epsilon, delta=per_step_delta,
+                )
+
+                _, mse_decay, _ = train(data_decay, **kwargs)
+                loss_decay.step(mse_decay)
+
+                _, mse_const, _ = train(data_const, **kwargs)
+                loss_const.step(mse_const)
+
+        losses_decay.append(loss_decay.item())
+        losses_const.append(loss_const.item())
+
+    utils.plot_wrapper(
+        plots=[
+            dict(x=dims, y=losses_const, label='const'),
+            dict(x=dims, y=losses_decay, label='decay'),
+        ],
+        options=dict(xlabel="$d$", ylabel="$F(\\bar{x})$")
     )
 
 
