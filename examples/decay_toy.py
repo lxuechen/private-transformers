@@ -32,26 +32,33 @@ class Data:
 
 
 def make_data(mode="decay", n=100000, d=50):
-    R = 1
-    C = 1
-    sum_sqrt = torch.sum(torch.arange(1, d + 1) ** -.5)  # sum_j 1 / sqrt(j)
-    G0 = 1 / 2 * C ** 2 / d
+    R = 1  # |beta| <= R/2. |beta_*| <= R/2.
+    C = 1  # Bound on |x|_2.
+
+    sum_inv_sqrt = torch.sum(torch.arange(1, d + 1) ** -.5)  # sum_j 1 / sqrt(j)
+    sum_inv = torch.sum(torch.arange(1, d + 1) ** -1.)
+
+    # Lipschitz constant of objective; should not depend on dimension!!! Bound on |xx^t (beta - beta_*)|_2.
+    G0 = C ** 2 * R
+    sensitivity = 2 / n * G0
+
+    # "variance inflation" must be adapted to the dimension, since high-dim => concentrate faster.
+    M_decay = 1 / (2 + 10 / d) * C ** 2 / sum_inv
+    M_const = 1 / (2 + 10 / d) * C ** 2 / d
 
     # beta_* = (0.25, 0.25, ..., 0.25) / sqrt(d).
-    # |beta_*|_2 \le 0.5
-    # |beta|_2 \le 0.5
+    # |beta_*|_2 <= R/2.
+    # |beta|_2 <= R/2
     beta_opt = torch.full(
         fill_value=0.25 / math.sqrt(d), size=(d,), device=device
     )
     mu_x = torch.zeros(size=(d,), device=device)
-    # decay variance (G0, G0 * 2 ** -0.5, ..., G0 * d ** -0.5) =>
-    #   |x|_2^2 concentrates to G0 * sum_sqrt; smaller than C^2, so almost no clipping.
-    # si_x_decay = math.sqrt(G0) * torch.sqrt(torch.arange(1, d + 1, device=device) ** -.5)  # standard deviation.
-    # TODO: This is a weird spectrum.
-    si_x_decay = math.sqrt(G0 * 2) * torch.sqrt(torch.arange(1, d + 1, device=device) ** -1.)  # standard deviation.
-    # constant variance (G0, G0, ..., G0).
-    si_x_const = math.sqrt(G0) * torch.ones(size=(d,), device=device)
-    sensitivity = 2 / n * C ** 2 * R
+    # decay variance M * (1, 2 ** -0.5, ..., d ** -0.5) =>
+    #   |x|_2^2 concentrates to M * sum_sqrt; smaller than C^2, so almost no clipping.
+    # si_x_decay = math.sqrt(M_decay) * torch.sqrt(torch.arange(1, d + 1, device=device) ** -.5)  # standard deviation.
+    si_x_decay = math.sqrt(M_decay) * torch.sqrt(torch.arange(1, d + 1, device=device) ** -1.)  # standard deviation.
+    # constant variance (M, ..., M).
+    si_x_const = math.sqrt(M_const) * torch.ones(size=(d,), device=device)
 
     if mode == "decay":
         si_x = si_x_decay
@@ -62,7 +69,7 @@ def make_data(mode="decay", n=100000, d=50):
 
     x = mu_x[None, :] + si_x[None, :] * torch.randn(size=(n, d), device=device)
     num_clipped = (x.norm(2, dim=1) > C).sum(dim=0)
-    logging.warning(f"Create data in mode: {mode}; number of examples clipped: {num_clipped}")
+    logging.warning(f"Create data in mode: {mode}, d={d}; number of examples clipped: {num_clipped}")
     time.sleep(2)
 
     x = x * torch.clamp_max(C / x.norm(2, dim=1, keepdim=True), max=1.)  # Almost no clipping happening here.
@@ -100,13 +107,15 @@ def train(data, num_steps, eval_steps, lr, epsilon, delta, weight_decay):
     for global_step in range(0, num_steps):
         if global_step % eval_steps == 0:
             mse, dis = evaluate(data=data, beta=beta_avg)
-            logging.warning(f"global_step: {global_step}, mse: {mse:.6f}, iterate dist: {dis:.6f}")
+            logging.warning(f"global_step: {global_step}, lr: {lr:.6f}, num_steps: {num_steps}, "
+                            f"mse: {mse:.6f}, iterate dist: {dis:.6f}")
         beta = train_one_step(
             data=data, beta=beta, lr=lr, epsilon=epsilon, delta=delta, weight_decay=weight_decay
         )
         beta_avg = beta_avg * global_step / (global_step + 1) + beta / (global_step + 1)
     mse, dis = evaluate(data=data, beta=beta_avg)
-    logging.warning(f"final, mse: {mse:.6f}, iterate dist: {dis:.6f}")
+    logging.warning(f"final, lr: {lr:.6f}, num_steps: {num_steps}, "
+                    f"mse: {mse:.6f}, iterate dist: {dis:.6f}")
     return beta_avg, mse, dis
 
 
@@ -139,9 +148,9 @@ def main(
     eval_steps=10000, weight_decay=1e-7,
     epsilon=3, delta=1e-6,
 ):
-    dims = (2, 5, 10, 20, 50, 100,)
-    num_steps_list = (100, 400, 700, 1000, 1300, 1600, 1900, 2200, 3000, 5000,)
-    lrs = (1e-1, 2e-1, 5e-1, 1, 2, 5,)
+    dims = (2, 5, 10, 20, 50, 100, 200,)
+    num_steps_list = (10, 50, 100, 400, 700, 1000, 1300, 1600, 1900, 2200, 3000, 5000,)
+    lrs = (1e-2, 3e-2, 1e-1, 3e-1, 1, 3, 10)
     seeds = (42, 96, 10000)
 
     losses_decay = []
