@@ -9,7 +9,8 @@ CUDA_VISIBLE_DEVICES=0 python -m classification.run_wrapper \
   --static_lm_head "yes" \
   --static_embedding "no" \
   --per_device_train_batch_size 25 \
-  --batch_size 25 \
+  --batch_size 1000 \
+  --num_train_epochs 8 \
   --eval_spectrum "no" \
   --non_private "no" \
   --eval_steps 50 \

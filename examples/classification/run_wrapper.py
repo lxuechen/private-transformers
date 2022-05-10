@@ -23,6 +23,7 @@ def _get_command(
     randomly_initialize,
     per_device_train_batch_size,
     batch_size,
+    num_train_epochs,
     eval_steps,
     eval_spectrum,
     max_spectrum_batches,
@@ -38,10 +39,12 @@ def _get_command(
         # This batch size selection roughly ensures the sampling rates on different
         # datasets are in the same ballpark.
         batch_size = int(base_batch_size * factor)
-
-    base_num_train_epochs = 3
-    num_train_epochs = int(base_num_train_epochs * factor)
     gradient_accumulation_steps = batch_size // per_device_train_batch_size
+
+    if num_train_epochs is None:
+        base_num_train_epochs = 3
+        num_train_epochs = int(base_num_train_epochs * factor)
+
     data_dir = f"{data_dir}/{common.task_name2suffix_name[task_name]}"
     template = {
         "sst-2": "*cls**sent_0*_It_was*mask*.*sep+*",
@@ -103,6 +106,7 @@ def main(
     max_lanczos_iter=2,
     randomly_initialize="no",
     batch_size=None,
+    num_train_epochs=None,
 ):
     command = _get_command(
         output_dir=output_dir,
@@ -124,6 +128,7 @@ def main(
         max_lanczos_iter=max_lanczos_iter,
         randomly_initialize=randomly_initialize,
         batch_size=batch_size,
+        num_train_epochs=num_train_epochs,
     )
     print('Running command:')
     print(command)
