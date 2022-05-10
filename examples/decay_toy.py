@@ -130,14 +130,12 @@ def make_per_step_privacy_spending(
 
 
 def main(
-    eval_steps=50, weight_decay=1e-7,
+    img_path=None,
+    eval_steps=10000, weight_decay=1e-7,
     epsilon=3, delta=1e-6,
 ):
-    # python decay_toy.py
-    # dims = (10, 20, 50, 100, 200, 500)
+    dims = (10, 20, 50, 100, 200, 500)
     num_steps_list = (100, 400, 700, 1000, 1300, 1600, 1900, 2200, 3000, 5000)
-
-    dims = (10, 20)
 
     losses_decay = []
     losses_const = []
@@ -167,6 +165,7 @@ def main(
         losses_const.append(loss_const.item())
 
     utils.plot_wrapper(
+        img_path=img_path,
         plots=[
             dict(x=dims, y=losses_const, label='const'),
             dict(x=dims, y=losses_decay, label='decay'),
@@ -176,4 +175,5 @@ def main(
 
 
 if __name__ == "__main__":
+    # python decay_toy.py --img_path "/mnt/disks/disk-2/dump/spectrum/toy/toy.png"
     fire.Fire(main)
