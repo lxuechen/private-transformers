@@ -5,6 +5,7 @@ import logging
 import math
 
 import fire
+import numpy as np
 from swissknife import utils
 import torch
 import tqdm
@@ -44,7 +45,9 @@ def make_data(mode="decay", n=100000, d=50):
     mu_x = torch.zeros(size=(d,), device=device)
     # decay variance (G0, G0 * 2 ** -0.5, ..., G0 * d ** -0.5) =>
     #   |x|_2^2 concentrates to G0 * sum_sqrt; smaller than C^2, so almost no clipping.
-    si_x_decay = math.sqrt(G0) * torch.sqrt(torch.arange(1, d + 1, device=device) ** -.5)  # standard deviation.
+    # si_x_decay = math.sqrt(G0) * torch.sqrt(torch.arange(1, d + 1, device=device) ** -.5)  # standard deviation.
+    # TODO: This is a weird spectrum.
+    si_x_decay = math.sqrt(G0 * 2) * torch.sqrt(torch.arange(1, d + 1, device=device) ** -1.)  # standard deviation.
     # constant variance (G0, G0, ..., G0).
     si_x_const = math.sqrt(G0) * torch.ones(size=(d,), device=device)
     sensitivity = 2 / n * C ** 2 * R
@@ -85,7 +88,7 @@ def evaluate(data, beta):
     ypred = data.x @ beta
     mse = .5 * ((data.y - ypred) ** 2).mean(dim=0)
     dis = (beta - data.beta_opt).norm(2)
-    return mse, dis
+    return mse.item(), dis.item()
 
 
 @torch.no_grad()
@@ -134,8 +137,10 @@ def main(
     eval_steps=10000, weight_decay=1e-7,
     epsilon=3, delta=1e-6,
 ):
-    dims = (10, 20, 50, 100, 200, 500)
-    num_steps_list = (100, 400, 700, 1000, 1300, 1600, 1900, 2200, 3000, 5000)
+    dims = (10, 20, 50,)
+    num_steps_list = (100, 400, 700, 1000, 1300, 1600, 1900, 2200, 3000, 5000,)
+    lrs = (1e-1, 2e-1, 5e-1, 1, 2, 5,)
+    seeds = (42, 96, 10000)
 
     losses_decay = []
     losses_const = []
@@ -149,17 +154,21 @@ def main(
             per_step_epsilon, per_step_delta = make_per_step_privacy_spending(
                 target_epsilon=epsilon, target_delta=delta, num_steps=num_steps,
             )
-            for lr in (1e-1, 2e-1, 5e-1, 1, 2, 5,):
+            for lr in lrs:
                 kwargs = dict(
                     num_steps=num_steps, eval_steps=eval_steps, lr=lr, weight_decay=weight_decay,
                     epsilon=per_step_epsilon, delta=per_step_delta,
                 )
 
-                _, mse_decay, _ = train(data_decay, **kwargs)
-                loss_decay.step(mse_decay)
-
-                _, mse_const, _ = train(data_const, **kwargs)
-                loss_const.step(mse_const)
+                mses_decay = []
+                mses_const = []
+                for seed in seeds:
+                    _, mse_decay, _ = train(data_decay, **kwargs)
+                    _, mse_const, _ = train(data_const, **kwargs)
+                    mses_decay.append(mse_decay)
+                    mses_const.append(mse_const)
+                loss_decay.step(np.mean(mses_decay))
+                loss_const.step(np.mean(mses_const))
 
         losses_decay.append(loss_decay.item())
         losses_const.append(loss_const.item())
@@ -167,8 +176,8 @@ def main(
     utils.plot_wrapper(
         img_path=img_path,
         plots=[
-            dict(x=dims, y=losses_const, label='const'),
             dict(x=dims, y=losses_decay, label='decay'),
+            dict(x=dims, y=losses_const, label='const'),
         ],
         options=dict(xlabel="$d$", ylabel="$F(\\bar{x})$")
     )
