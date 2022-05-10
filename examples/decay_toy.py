@@ -133,7 +133,7 @@ def make_per_step_privacy_spending(
 
 
 def main(
-    img_path=None,
+    img_dir=None,
     eval_steps=10000, weight_decay=1e-7,
     epsilon=3, delta=1e-6,
 ):
@@ -144,9 +144,9 @@ def main(
 
     losses_decay = []
     losses_const = []
-    for d in dims:
-        data_decay = make_data(mode='decay', d=d)
-        data_const = make_data(mode="const", d=d)
+    for dim in tqdm.tqdm(dims, desc="dims"):
+        data_decay = make_data(mode='decay', d=dim)
+        data_const = make_data(mode="const", d=dim)
 
         loss_decay = utils.MinMeter()
         loss_const = utils.MinMeter()
@@ -173,13 +173,22 @@ def main(
         losses_decay.append(loss_decay.item())
         losses_const.append(loss_const.item())
 
-    utils.plot_wrapper(
-        img_path=img_path,
+    plotting = dict(
         plots=[
             dict(x=dims, y=losses_decay, label='decay', marker="x"),
             dict(x=dims, y=losses_const, label='const', marker="x"),
         ],
         options=dict(xlabel="$d$", ylabel="$\mathbb{E}[ F(\\bar{x}) ]$")
+    )
+
+    if img_dir is not None:
+        utils.jdump(plotting, utils.join(img_dir, 'toyplot.json'))
+        img_path = utils.join(img_dir, 'toy.png')
+    else:
+        img_path = None
+
+    utils.plot_wrapper(
+        img_path=img_path, **plotting,
     )
 
 
