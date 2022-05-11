@@ -35,7 +35,7 @@ def make_data(
     if mode == "const":
         Ar = G0 * torch.arange(1, d + 1, device=device)
     elif mode == "sqrt":
-        Ar = G0 * torch.arange(1, d + 1, device=device) ** -.5
+        Ar = G0 * torch.arange(1, d + 1, device=device) ** -.2
     elif mode == "linear":
         Ar = G0 * torch.arange(1, d + 1, device=device) ** -1.
     elif mode == "quadratic":
