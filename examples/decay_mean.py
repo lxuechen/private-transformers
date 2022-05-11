@@ -182,10 +182,13 @@ def main(
     else:
         img_path = None
 
+    linestyles = ("-", "--", ":", "-.")
+    markers = ("o", "+", "x", "^")
     plotting = dict(
         errorbars=tuple(
-            dict(x=dims, y=np.mean(arr, axis=1), yerr=np.std(arr, axis=1), label=mode, marker='x')
-            for arr, mode in utils.zip_(losses, modes)
+            dict(x=dims, y=np.mean(arr, axis=1), yerr=np.std(arr, axis=1), label=mode, marker=marker,
+                 linestyle=linestyle)
+            for arr, mode, linestyle, marker in utils.zip_(losses, modes, linestyles, markers)
         ),
         options=dict(xlabel="$d$", ylabel="$\mathbb{E}[ F(\\bar{x}) ]$")
     )
