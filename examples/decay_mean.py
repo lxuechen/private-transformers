@@ -41,6 +41,7 @@ def make_data(n=100000, d=10, dmin=10, mu_beta=0.1, si_beta=0.1, mode="linear"):
     else:
         raise NotImplementedError
 
+    Ar *= 3  # TODO:
     G0 = Ar[0]
     sensitivity = 2 * G0 / n
 
@@ -59,32 +60,37 @@ def train_one_step(data, beta, lr, epsilon, delta, weight_decay):
     assert beta.dim() == 2
     assert data.Ar.dim() == 1
 
-    beta = beta.clone().requires_grad_(True)
+    # TODO: Why is my own written grad wrong?
+    betagrad = beta.clone().requires_grad_(True)
     with torch.enable_grad():
-        loss = (data.Ar[None, :] * (beta - data.beta)).norm(2, dim=1).mean(dim=0)
-        grad, = torch.autograd.grad(loss, beta)
+        loss = (data.Ar[None, :] * (betagrad - data.beta)).norm(2, dim=1).mean(dim=0)
+        grad, = torch.autograd.grad(loss, betagrad)
         grad.detach_()
 
     gaussian_mechanism_variance = 2. * math.log(1.25 / delta) * data.sensitivity ** 2. / epsilon ** 2.
     grad_priv = grad + torch.randn_like(grad) * math.sqrt(gaussian_mechanism_variance)
-    beta -= lr * (grad_priv + weight_decay * beta)
+    beta = beta - lr * (grad_priv + weight_decay * beta)
     return beta
 
 
 @torch.no_grad()
-def train(data, num_steps, eval_steps, lr, epsilon, delta, weight_decay):
+def train(data, num_steps, eval_steps, lr, epsilon, delta, weight_decay, tag):
     beta = torch.zeros(size=(1, data.beta_opt.size(1),), device=device)
     beta_avg = beta.clone()
     for global_step in range(0, num_steps):
         if global_step % eval_steps == 0:
             mdist = evaluate(data=data, beta=beta_avg)
-            logging.warning(f"global_step: {global_step}, lr: {lr:.6f}, num_steps: {num_steps}, mdist: {mdist:.6f}")
+            logging.warning(
+                f"tag: {tag}, global_step: {global_step}, lr: {lr:.6f}, num_steps: {num_steps}, mdist: {mdist:.6f}"
+            )
         beta = train_one_step(
             data=data, beta=beta, lr=lr, epsilon=epsilon, delta=delta, weight_decay=weight_decay
         )
         beta_avg = beta_avg * global_step / (global_step + 1) + beta / (global_step + 1)
+
     mdist = evaluate(data=data, beta=beta_avg)
-    logging.warning(f"final, lr: {lr:.6f}, num_steps: {num_steps}, mdist: {mdist:.6f}")
+    logging.warning(f"tag: {tag}, final, lr: {lr:.6f}, num_steps: {num_steps}, mdist: {mdist:.6f}")
+
     return beta_avg, mdist
 
 
@@ -114,8 +120,9 @@ def make_per_step_privacy_spending(
 
 def main(img_dir=None, eval_steps=10000, weight_decay=0, epsilon=3, delta=1e-6, seeds=(42, 96, 10000)):
     dims = (10, 50, 100, 500,)
-    num_steps_list = (10, 50, 100, 400, 700, 1000, 1300, 1600, 1900, 2200, 3000, 5000,)
-    lrs = (1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1, 1, 3, 10)
+    num_steps_list = (10, 100, 300, 1000, 3000,)
+    # lrs = (1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1, 1, 3, 10)
+    lrs = (1e-4, 1e-3, 1e-2, 1e-1, 1,)
 
     # dims = (10,)
     # num_steps_list = (10, 50, 100, 500, 1000)
@@ -125,7 +132,7 @@ def main(img_dir=None, eval_steps=10000, weight_decay=0, epsilon=3, delta=1e-6, 
     losses_const = []
     for dim in tqdm.tqdm(dims, desc="dims"):
         data_decay = make_data(mode='constant', d=dim)
-        data_const = make_data(mode="linear", d=dim)
+        data_const = make_data(mode="quadratic", d=dim)
 
         loss_decay = utils.MinMeter()
         loss_const = utils.MinMeter()
@@ -142,8 +149,8 @@ def main(img_dir=None, eval_steps=10000, weight_decay=0, epsilon=3, delta=1e-6, 
                 mses_decay = []
                 mses_const = []
                 for seed in seeds:
-                    _, mse_decay = train(data_decay, **kwargs)
-                    _, mse_const = train(data_const, **kwargs)
+                    _, mse_decay = train(data_decay, tag="decay", **kwargs)
+                    _, mse_const = train(data_const, tag="const", **kwargs)
                     mses_decay.append(mse_decay)
                     mses_const.append(mse_const)
                 loss_decay.step(np.mean(mses_decay))
@@ -172,5 +179,5 @@ def main(img_dir=None, eval_steps=10000, weight_decay=0, epsilon=3, delta=1e-6, 
 
 
 if __name__ == "__main__":
-    # python decay_mean.py --img_dir "/mnt/disks/disk-2/dump/spectrum/toy2"
+    # CUDA_VISIBLE_DEVICES=1 python decay_mean.py --img_dir "/mnt/disks/disk-2/dump/spectrum/toy3"
     fire.Fire(main)
