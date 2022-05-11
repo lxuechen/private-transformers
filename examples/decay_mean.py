@@ -35,7 +35,7 @@ def make_data(
     if mode == "const":
         Ar = G0 * torch.arange(1, d + 1, device=device)
     elif mode == "sqrt":
-        Ar = G0 * torch.arange(1, d + 1, device=device) ** -.2
+        Ar = G0 * torch.arange(1, d + 1, device=device) ** -.2  # TODO: Not actually sqrt.
     elif mode == "linear":
         Ar = G0 * torch.arange(1, d + 1, device=device) ** -1.
     elif mode == "quadratic":
@@ -146,12 +146,12 @@ def main(
 
     for dim in tqdm.tqdm(dims, desc="dims"):
         beta = make_beta(n=100000, d=dim, dmin=1, mu_beta=0.2, si_beta=0.1)
-        data = tuple(make_data(beta=beta, mode=mode) for mode in modes)
+        data = tuple(make_data(beta=beta, mode=mode, G0=1.) for mode in modes)
 
         loss = [[sys.maxsize] for _ in range(num_modes)]  # a list (of best results over seed) for each mode.
         for idx, (this_data, this_tag) in tqdm.tqdm(enumerate(utils.zip_(data, modes)), desc="modes"):
             # hp tuning; 1) num_steps, 2) lr.
-            for num_steps in tqdm.tqdm(num_steps_list):
+            for num_steps in num_steps_list:
                 for lr in lrs:
                     kwargs = dict(
                         data=this_data,
@@ -170,11 +170,11 @@ def main(
                     if np.mean(results) < np.mean(loss[idx]):
                         loss[idx] = results
 
+        # update after hp tuning.
         for this_losses, this_loss in utils.zip_(losses, loss):
             this_losses.append(this_loss)
 
     raw_data = dict(losses=losses, modes=modes, dims=dims)
-    losses = [np.array(this_losses) for this_losses in losses]
 
     if img_dir is not None:
         utils.jdump(raw_data, utils.join(img_dir, 'toyplot.json'))
@@ -182,6 +182,7 @@ def main(
     else:
         img_path = None
 
+    losses = [np.array(this_losses) for this_losses in losses]  # for using np.mean, np.std.
     linestyles = ("-", "--", ":", "-.")
     markers = ("o", "+", "x", "^")
     plotting = dict(
