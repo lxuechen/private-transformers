@@ -149,7 +149,7 @@ def main(
         data = tuple(make_data(beta=beta, mode=mode, G0=1.) for mode in modes)
 
         loss = [[sys.maxsize] for _ in range(num_modes)]  # a list (of best results over seed) for each mode.
-        for idx, (this_data, this_tag) in tqdm.tqdm(enumerate(utils.zip_(data, modes)), desc="modes"):
+        for idx, (this_data, this_tag) in tqdm.tqdm(enumerate(utils.zip_(data, modes)), desc="modes", total=len(data)):
             # hp tuning; 1) num_steps, 2) lr.
             for num_steps in num_steps_list:
                 for lr in lrs:
