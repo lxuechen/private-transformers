@@ -4,6 +4,7 @@ mean estimation with decaying importance.
 import dataclasses
 import logging
 import math
+import sys
 
 import fire
 import numpy as np
@@ -16,21 +17,22 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 @dataclasses.dataclass
 class Data:
-    beta_opt: torch.Tensor
     beta: torch.Tensor
     Ar: torch.Tensor  # A^{1/2}.
-    G0: float  # max eigenvalue of A^{1/2}.
     sensitivity: float
 
 
-def make_data(n=100000, d=10, dmin=1, mu_beta=0.1, si_beta=0.1, mode="linear", G0=1.):
-    assert d >= dmin
+def make_data(
+    beta=None,
+    n=100000, d=10, dmin=1, mu_beta=0.2, si_beta=0.1,
+    mode="linear",
+    G0=1.,
+):
+    if beta is None:
+        beta = make_beta(n=n, d=d, dmin=dmin, mu_beta=mu_beta, si_beta=si_beta)
+    d = beta.size(1)
 
-    beta_opt = torch.full(fill_value=mu_beta, device=device, size=(1, d))
-    beta = beta_opt + torch.randn(size=(n, d), device=device) * si_beta
-    beta[:, dmin:] = 0.  # Ensure init distance to opt is the same.
-
-    if mode == "constant":
+    if mode == "const":
         Ar = G0 * torch.arange(1, d + 1, device=device)
     elif mode == "sqrt":
         Ar = G0 * torch.arange(1, d + 1, device=device) ** -.5
@@ -39,11 +41,19 @@ def make_data(n=100000, d=10, dmin=1, mu_beta=0.1, si_beta=0.1, mode="linear", G
     elif mode == "quadratic":
         Ar = G0 * torch.arange(1, d + 1, device=device) ** -2.
     else:
-        raise NotImplementedError
+        raise ValueError(f"Unknown mode: {mode}")
 
     sensitivity = 2 * G0 / n
 
-    return Data(beta=beta, beta_opt=beta_opt, Ar=Ar, G0=G0, sensitivity=sensitivity)
+    return Data(beta=beta, Ar=Ar, sensitivity=sensitivity)
+
+
+def make_beta(n, d, dmin, mu_beta, si_beta):
+    if d < dmin:
+        raise ValueError(f"d < dmin")
+    beta = mu_beta + torch.randn(size=(n, d), device=device) * si_beta
+    beta[:, dmin:] = 0.  # Ensure init distance to opt is the same.
+    return beta
 
 
 def evaluate(data, beta):
@@ -53,9 +63,6 @@ def evaluate(data, beta):
 
 
 def train_one_step(data, beta, lr, epsilon, delta, weight_decay):
-    assert data.Ar.dim() == 1
-    assert beta.size() == (1, len(data.Ar))
-
     res = data.Ar[None, :] * (beta - data.beta)  # (n, d).
     grad = data.Ar * (res / res.norm(2, dim=1, keepdim=True)).mean(dim=0)
 
@@ -66,8 +73,11 @@ def train_one_step(data, beta, lr, epsilon, delta, weight_decay):
 
 
 @torch.no_grad()
-def train(data, num_steps, eval_steps, lr, epsilon, delta, weight_decay, tag, verbose):
-    beta = torch.zeros(size=(1, data.beta_opt.size(1),), device=device)
+def train(data, num_steps, eval_steps, lr, weight_decay, epsilon, delta, tag, verbose):
+    per_step_epsilon, per_step_delta = make_per_step_privacy_spending(
+        target_epsilon=epsilon, target_delta=delta, num_steps=num_steps
+    )
+    beta = torch.zeros(size=(1, data.beta.size(1),), device=device)
     beta_avg = beta.clone()
     for global_step in range(0, num_steps):
         if global_step % eval_steps == 0:
@@ -76,8 +86,12 @@ def train(data, num_steps, eval_steps, lr, epsilon, delta, weight_decay, tag, ve
                 logging.warning(
                     f"tag: {tag}, global_step: {global_step}, lr: {lr:.6f}, num_steps: {num_steps}, mdist: {mdist:.6f}"
                 )
+
         beta = train_one_step(
-            data=data, beta=beta, lr=lr, epsilon=epsilon, delta=delta, weight_decay=weight_decay
+            data=data,
+            beta=beta,
+            lr=lr, weight_decay=weight_decay,
+            epsilon=per_step_epsilon, delta=per_step_delta,
         )
         beta_avg = beta_avg * global_step / (global_step + 1) + beta / (global_step + 1)
 
@@ -112,65 +126,72 @@ def make_per_step_privacy_spending(
     return per_step_epsilon, per_step_delta
 
 
-def main(img_dir=None, eval_steps=10000, weight_decay=0, epsilon=3, delta=1e-6, seeds=(42, 96, 10000), verbose=False):
-    dims = (10, 50, 100, 500, 1000)
-    num_steps_list = (10, 20, 40, 80, 160, 320, 640, 1280, 2560, 5120)
-    lrs = (1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1, 1, 3,)
+def main(
+    img_dir=None, eval_steps=10000, weight_decay=0, epsilon=3, delta=1e-6, seeds=(42, 96, 10000),
+    verbose=False, quick=False,
+):
+    if quick:
+        dims = (10, 50,)
+        num_steps_list = (10, 20,)
+        lrs = (1e-4, 3e-4,)
+    else:
+        dims = (10, 50, 100, 500, 1000)
+        num_steps_list = (10, 20, 40, 80, 160, 320, 640, 1280, 2560, 5120)
+        lrs = (1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1, 1, 3,)
 
-    # dims = (10,)
-    # num_steps_list = (10, 50, 100, 500, 1000)
-    # lrs = (1e-4, 1e-3, 1e-2, 1e-1, 1)
+    modes = ("const", "sqrt", "linear", "quadratic")
+    num_modes = len(modes)
+    # tuple of best results; each result is of size (len(dims), len(seeds)).
+    losses = tuple([] for _ in range(num_modes))
 
-    losses_decay = []
-    losses_const = []
     for dim in tqdm.tqdm(dims, desc="dims"):
-        data_decay = make_data(mode='quadratic', d=dim)
-        data_const = make_data(mode="constant", d=dim)
+        beta = make_beta(n=100000, d=dim, dmin=1, mu_beta=0.2, si_beta=0.1)
+        data = tuple(make_data(beta=beta, mode=mode) for mode in modes)
 
-        loss_decay = utils.MinMeter()
-        loss_const = utils.MinMeter()
-        for num_steps in tqdm.tqdm(num_steps_list, desc="num steps"):
-            per_step_epsilon, per_step_delta = make_per_step_privacy_spending(
-                target_epsilon=epsilon, target_delta=delta, num_steps=num_steps,
-            )
-            for lr in lrs:
-                kwargs = dict(
-                    num_steps=num_steps, eval_steps=eval_steps, lr=lr, weight_decay=weight_decay,
-                    epsilon=per_step_epsilon, delta=per_step_delta, verbose=verbose
-                )
+        loss = [[sys.maxsize] for _ in range(num_modes)]  # a list (of best results over seed) for each mode.
+        for idx, (this_data, this_tag) in tqdm.tqdm(enumerate(utils.zip_(data, modes)), desc="modes"):
+            # hp tuning; 1) num_steps, 2) lr.
+            for num_steps in tqdm.tqdm(num_steps_list):
+                for lr in lrs:
+                    kwargs = dict(
+                        data=this_data,
+                        num_steps=num_steps,
+                        lr=lr,
 
-                mses_decay = []
-                mses_const = []
-                for seed in seeds:
-                    _, mse_decay = train(data_decay, tag="decay", **kwargs)
-                    _, mse_const = train(data_const, tag="const", **kwargs)
-                    mses_decay.append(mse_decay)
-                    mses_const.append(mse_const)
-                loss_decay.step(np.mean(mses_decay))
-                loss_const.step(np.mean(mses_const))
+                        eval_steps=eval_steps,
+                        weight_decay=weight_decay,
+                        epsilon=epsilon,
+                        delta=delta,
+                        tag=this_tag,
+                        verbose=verbose,
+                    )
 
-        losses_decay.append(loss_decay.item())
-        losses_const.append(loss_const.item())
+                    results = [train(**kwargs)[1] for seed in seeds]
+                    if np.mean(results) < np.mean(loss[idx]):
+                        loss[idx] = results
 
-    plotting = dict(
-        plots=[
-            dict(x=dims, y=losses_decay, label='decay', marker="x"),
-            dict(x=dims, y=losses_const, label='const', marker="x"),
-        ],
-        options=dict(xlabel="$d$", ylabel="$\mathbb{E}[ F(\\bar{x}) ]$")
-    )
+        for this_losses, this_loss in utils.zip_(losses, loss):
+            this_losses.append(this_loss)
+
+    raw_data = dict(losses=losses, modes=modes, dims=dims)
+    losses = [np.array(this_losses) for this_losses in losses]
 
     if img_dir is not None:
-        utils.jdump(plotting, utils.join(img_dir, 'toyplot.json'))
+        utils.jdump(raw_data, utils.join(img_dir, 'toyplot.json'))
         img_path = utils.join(img_dir, 'toy.png')
     else:
         img_path = None
 
-    utils.plot_wrapper(
-        img_path=img_path, **plotting,
+    plotting = dict(
+        errorbars=tuple(
+            dict(x=dims, y=np.mean(arr, axis=1), yerr=np.std(arr, axis=1), label=mode, marker='x')
+            for arr, mode in utils.zip_(losses, modes)
+        ),
+        options=dict(xlabel="$d$", ylabel="$\mathbb{E}[ F(\\bar{x}) ]$")
     )
+    utils.plot_wrapper(img_path=img_path, **plotting)
 
 
 if __name__ == "__main__":
-    # CUDA_VISIBLE_DEVICES=1 python decay_mean.py --img_dir "/mnt/disks/disk-2/dump/spectrum/toy3"
+    # CUDA_VISIBLE_DEVICES=1 python decay_mean.py --img_dir "/mnt/disks/disk-2/dump/spectrum/toy4"
     fire.Fire(main)
