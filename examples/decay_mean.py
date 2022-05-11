@@ -19,53 +19,45 @@ class Data:
     beta_opt: torch.Tensor
     beta: torch.Tensor
     Ar: torch.Tensor  # A^{1/2}.
-    G0: torch.Tensor  # max eigenvalue of A^{1/2}.
+    G0: float  # max eigenvalue of A^{1/2}.
     sensitivity: float
 
 
-def make_data(n=100000, d=10, dmin=10, mu_beta=0.1, si_beta=0.1, mode="linear"):
+def make_data(n=100000, d=10, dmin=1, mu_beta=0.1, si_beta=0.1, mode="linear", G0=1.):
     assert d >= dmin
 
-    beta_opt = torch.full(fill_value=mu_beta, device=device, size=(n, d))
-    beta = beta_opt + torch.randn_like(beta_opt) * si_beta
+    beta_opt = torch.full(fill_value=mu_beta, device=device, size=(1, d))
+    beta = beta_opt + torch.randn(size=(n, d), device=device) * si_beta
     beta[:, dmin:] = 0.  # Ensure init distance to opt is the same.
 
     if mode == "constant":
-        Ar = torch.arange(1, d + 1, device=device)
+        Ar = G0 * torch.arange(1, d + 1, device=device)
     elif mode == "sqrt":
-        Ar = torch.arange(1, d + 1, device=device) ** -.5
+        Ar = G0 * torch.arange(1, d + 1, device=device) ** -.5
     elif mode == "linear":
-        Ar = torch.arange(1, d + 1, device=device) ** -1.
+        Ar = G0 * torch.arange(1, d + 1, device=device) ** -1.
     elif mode == "quadratic":
-        Ar = torch.arange(1, d + 1, device=device) ** -2.
+        Ar = G0 * torch.arange(1, d + 1, device=device) ** -2.
     else:
         raise NotImplementedError
 
-    Ar *= 3  # TODO:
-    G0 = Ar[0]
     sensitivity = 2 * G0 / n
 
     return Data(beta=beta, beta_opt=beta_opt, Ar=Ar, G0=G0, sensitivity=sensitivity)
 
 
 def evaluate(data, beta):
+    # 1 / n sum_i | A^{1/2} (beta_i - beta) |
     res = (data.Ar[None, :] * (data.beta - beta))  # (n, d).
     return res.norm(2, dim=1).mean(dim=0).item()
 
 
 def train_one_step(data, beta, lr, epsilon, delta, weight_decay):
-    # res = (data.Ar[None, :] * (data.beta - beta[None, :]))  # (n, d).
-    # grad = data.Ar * (res / res.norm(2, dim=1, keepdim=True)).mean(dim=0)
-
-    assert beta.dim() == 2
     assert data.Ar.dim() == 1
+    assert beta.size() == (1, len(data.Ar))
 
-    # TODO: Why is my own written grad wrong?
-    betagrad = beta.clone().requires_grad_(True)
-    with torch.enable_grad():
-        loss = (data.Ar[None, :] * (betagrad - data.beta)).norm(2, dim=1).mean(dim=0)
-        grad, = torch.autograd.grad(loss, betagrad)
-        grad.detach_()
+    res = data.Ar[None, :] * (beta - data.beta)  # (n, d).
+    grad = data.Ar * (res / res.norm(2, dim=1, keepdim=True)).mean(dim=0)
 
     gaussian_mechanism_variance = 2. * math.log(1.25 / delta) * data.sensitivity ** 2. / epsilon ** 2.
     grad_priv = grad + torch.randn_like(grad) * math.sqrt(gaussian_mechanism_variance)
@@ -119,10 +111,10 @@ def make_per_step_privacy_spending(
 
 
 def main(img_dir=None, eval_steps=10000, weight_decay=0, epsilon=3, delta=1e-6, seeds=(42, 96, 10000)):
-    dims = (10, 50, 100, 500,)
-    num_steps_list = (10, 100, 300, 1000, 3000,)
+    dims = (10, 50)
+    num_steps_list = (10, 100, 1000,)
     # lrs = (1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1, 1, 3, 10)
-    lrs = (1e-4, 1e-3, 1e-2, 1e-1, 1,)
+    lrs = (1e-4, 1e-2, 1,)
 
     # dims = (10,)
     # num_steps_list = (10, 50, 100, 500, 1000)
