@@ -66,22 +66,24 @@ def train_one_step(data, beta, lr, epsilon, delta, weight_decay):
 
 
 @torch.no_grad()
-def train(data, num_steps, eval_steps, lr, epsilon, delta, weight_decay, tag):
+def train(data, num_steps, eval_steps, lr, epsilon, delta, weight_decay, tag, verbose):
     beta = torch.zeros(size=(1, data.beta_opt.size(1),), device=device)
     beta_avg = beta.clone()
     for global_step in range(0, num_steps):
         if global_step % eval_steps == 0:
             mdist = evaluate(data=data, beta=beta_avg)
-            logging.warning(
-                f"tag: {tag}, global_step: {global_step}, lr: {lr:.6f}, num_steps: {num_steps}, mdist: {mdist:.6f}"
-            )
+            if verbose:
+                logging.warning(
+                    f"tag: {tag}, global_step: {global_step}, lr: {lr:.6f}, num_steps: {num_steps}, mdist: {mdist:.6f}"
+                )
         beta = train_one_step(
             data=data, beta=beta, lr=lr, epsilon=epsilon, delta=delta, weight_decay=weight_decay
         )
         beta_avg = beta_avg * global_step / (global_step + 1) + beta / (global_step + 1)
 
     mdist = evaluate(data=data, beta=beta_avg)
-    logging.warning(f"tag: {tag}, final, lr: {lr:.6f}, num_steps: {num_steps}, mdist: {mdist:.6f}")
+    if verbose:
+        logging.warning(f"tag: {tag}, final, lr: {lr:.6f}, num_steps: {num_steps}, mdist: {mdist:.6f}")
 
     return beta_avg, mdist
 
@@ -110,11 +112,10 @@ def make_per_step_privacy_spending(
     return per_step_epsilon, per_step_delta
 
 
-def main(img_dir=None, eval_steps=10000, weight_decay=0, epsilon=3, delta=1e-6, seeds=(42, 96, 10000)):
-    dims = (10, 50)
-    num_steps_list = (10, 100, 1000,)
-    # lrs = (1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1, 1, 3, 10)
-    lrs = (1e-4, 1e-2, 1,)
+def main(img_dir=None, eval_steps=10000, weight_decay=0, epsilon=3, delta=1e-6, seeds=(42, 96, 10000), verbose=False):
+    dims = (10, 50, 100, 500, 1000)
+    num_steps_list = (10, 20, 40, 80, 160, 320, 640, 1280, 2560, 5120)
+    lrs = (1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1, 1, 3,)
 
     # dims = (10,)
     # num_steps_list = (10, 50, 100, 500, 1000)
@@ -123,8 +124,8 @@ def main(img_dir=None, eval_steps=10000, weight_decay=0, epsilon=3, delta=1e-6, 
     losses_decay = []
     losses_const = []
     for dim in tqdm.tqdm(dims, desc="dims"):
-        data_decay = make_data(mode='constant', d=dim)
-        data_const = make_data(mode="quadratic", d=dim)
+        data_decay = make_data(mode='quadratic', d=dim)
+        data_const = make_data(mode="constant", d=dim)
 
         loss_decay = utils.MinMeter()
         loss_const = utils.MinMeter()
@@ -135,7 +136,7 @@ def main(img_dir=None, eval_steps=10000, weight_decay=0, epsilon=3, delta=1e-6, 
             for lr in lrs:
                 kwargs = dict(
                     num_steps=num_steps, eval_steps=eval_steps, lr=lr, weight_decay=weight_decay,
-                    epsilon=per_step_epsilon, delta=per_step_delta,
+                    epsilon=per_step_epsilon, delta=per_step_delta, verbose=verbose
                 )
 
                 mses_decay = []
