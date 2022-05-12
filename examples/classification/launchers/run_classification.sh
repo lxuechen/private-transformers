@@ -10,10 +10,11 @@ CUDA_VISIBLE_DEVICES=0 python -m classification.run_wrapper \
   --static_embedding "no" \
   --per_device_train_batch_size 25 \
   --batch_size 1000 \
-  --num_train_epochs 8 \
+  --num_train_epochs 32 \
   --eval_spectrum "no" \
   --non_private "no" \
   --eval_steps 50 \
   --max_spectrum_batches 400 \
   --max_lanczos_iter 100 \
-  --randomly_initialize "no"
+  --randomly_initialize "no" \
+  --ghost_clipping "no"

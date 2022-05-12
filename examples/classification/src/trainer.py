@@ -404,7 +404,7 @@ class Trainer(transformers.Trainer):
                         optimizer.step()
                     else:
                         vector_loss = losses.get("vector_loss")
-                        self.optimizer.step(loss=vector_loss)
+                        self.optimizer.step(loss=vector_loss)  # noqa
 
                     scheduler.step()
                     model.zero_grad(set_to_none=True)
@@ -423,7 +423,7 @@ class Trainer(transformers.Trainer):
                         )
                 else:
                     if not self.privacy_args.non_private:
-                        self.optimizer.virtual_step(loss=losses.get("vector_loss"))
+                        self.optimizer.virtual_step(loss=losses.get("vector_loss"))  # noqa
 
                 if 0 < self.args.max_steps < self.global_step:
                     epoch_iterator.close()

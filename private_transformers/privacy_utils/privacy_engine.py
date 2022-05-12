@@ -12,6 +12,7 @@ import types
 from typing import Callable, Dict, Optional, Sequence, Union
 
 import numpy as np
+from swissknife import utils
 import torch
 from torch import nn
 
@@ -351,31 +352,49 @@ class PrivacyEngine(object):
     # ---------------------------------------------
 
     @torch.no_grad()
-    def step(self, scale=1, **kwargs):
-        """Step function.
-
-        `loss` must be passed in as a keyword argument!
-        """
+    def step(
+        self,
+        loss: torch.Tensor,
+        scale=1.,
+        store_path: Optional[str] = None,
+        orthogonal_projection: Optional[torch.Tensor] = None
+    ):
+        """Step function."""
         if self.ghost_clipping:
-            self._ghost_step(loss=kwargs.pop("loss"))
+            self._ghost_step(loss=loss)
         else:
-            self._step(loss=kwargs.pop("loss"), scale=scale)
+            self._step(loss=loss, scale=scale, store_path=store_path, orthogonal_projection=orthogonal_projection)
 
     @torch.no_grad()
-    def virtual_step(self, scale=1, **kwargs):
-        """Virtual step function when there's gradient accumulation.
-
-        `loss` must be passed in as a keyword argument!
-        """
+    def virtual_step(self, loss: torch.Tensor, scale=1.):
+        """Virtual step function when there's gradient accumulation."""
         if self.ghost_clipping:
-            self._ghost_virtual_step(loss=kwargs.pop("loss"))
+            self._ghost_virtual_step(loss=loss)
         else:
-            self._virtual_step(loss=kwargs.pop("loss"), scale=scale)
+            self._virtual_step(loss=loss, scale=scale)
 
-    def _step(self, loss, scale=1.):
+    def zero_grad(self, skip_grad=False):
+        for name, param in self.named_params:
+            if hasattr(param, "grad_sample"):
+                del param.grad_sample
+            if hasattr(param, "norm_sample"):
+                del param.norm_sample
+            if hasattr(param, "summed_grad"):
+                del param.summed_grad
+            if not skip_grad:
+                if hasattr(param, "grad"):
+                    del param.grad
+
+    def _step(
+        self,
+        loss,
+        scale,
+        store_path,
+        orthogonal_projection
+    ):
         """Create noisy gradients.
 
-        Should be ran right before you call `optimizer.step`.
+        Should be run right before you call `optimizer.step`.
 
         This function does 3 things:
             1) call `loss.backward()`
@@ -386,6 +405,9 @@ class PrivacyEngine(object):
         Args:
             loss: The per-example loss; a 1-D tensor.
             scale: The loss up-scaling factor in amp. In full precision, this arg isn't useful.
+            store_path: Path to store gradients flattened and moved to CPU. Doesn't do anything if None.
+            orthogonal_projection: len(param) x len(param) sized orthogonal projection matrix.
+                Project the summed gradients to this subspace. Doesn't do anything if None.
         """
         if self._locked:  # Skip this gradient creation step if already created gradient and haven't stepped.
             logging.warning("Attempted to step, but the engine is on lock.")
@@ -396,6 +418,27 @@ class PrivacyEngine(object):
         self.max_clip = coef_sample.max().item()
         self.min_clip = coef_sample.min().item()
         self.med_clip = coef_sample.median().item()
+
+        # --- code for low rank analysis project ---
+        def _get_flat_grad():
+            """Get the flat summed clipped gradients."""
+            return torch.cat([param.summed_grad.flatten() for _, param in self.named_params])
+
+        if store_path is not None:  # Store the flat summed clipped gradients.
+            flat_grad = _get_flat_grad()
+            torch.save({"flat_grad": flat_grad.cpu().float()}, store_path)
+
+        if orthogonal_projection is not None:
+            flat_grad = _get_flat_grad()
+            if orthogonal_projection.device != flat_grad.device or orthogonal_projection.dtype != flat_grad.dtype:
+                orthogonal_projection = orthogonal_projection.to(flat_grad)
+            flat_grad = orthogonal_projection @ flat_grad
+            grads = utils.flat_to_shape(
+                flat_tensor=flat_grad, shapes=[param.shape for _, param in self.named_params]
+            )
+            for (_, param), grad in utils.zip_(self.named_params, grads):
+                param.summed_grad = grad
+        # ---
 
         # Add noise and scale by inverse batch size.
         signals, noises = [], []
@@ -436,19 +479,7 @@ class PrivacyEngine(object):
 
         self.lock()  # Make creating new gradients impossible, unless optimizer.step is called.
 
-    def zero_grad(self, skip_grad=False):
-        for name, param in self.named_params:
-            if hasattr(param, "grad_sample"):
-                del param.grad_sample
-            if hasattr(param, "norm_sample"):
-                del param.norm_sample
-            if hasattr(param, "summed_grad"):
-                del param.summed_grad
-            if not skip_grad:
-                if hasattr(param, "grad"):
-                    del param.grad
-
-    def _virtual_step(self, loss, scale=1.):
+    def _virtual_step(self, loss, scale):
         self._accumulate_summed_grad(loss=loss, scale=scale)
         for name, param in self.named_params:
             # Del everything except `.summed_grad` to save memory!
@@ -460,7 +491,7 @@ class PrivacyEngine(object):
                 del param.grad
 
     @torch.no_grad()
-    def _accumulate_summed_grad(self, loss, scale=1.):
+    def _accumulate_summed_grad(self, loss, scale):
         """Accumulate signal by summing clipped gradients."""
         if loss.dim() != 1:
             raise ValueError(f"Expected `loss` to be a the per-example loss 1-D tensor.")

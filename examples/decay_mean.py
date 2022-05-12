@@ -197,5 +197,6 @@ def main(
 
 
 if __name__ == "__main__":
+    # TODO: report test loss. try other decay types.
     # CUDA_VISIBLE_DEVICES=1 python decay_mean.py --img_dir "/mnt/disks/disk-2/dump/spectrum/toy4"
     fire.Fire(main)
