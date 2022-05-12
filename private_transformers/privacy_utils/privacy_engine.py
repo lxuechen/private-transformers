@@ -356,7 +356,7 @@ class PrivacyEngine(object):
         self,
         loss: torch.Tensor,
         scale=1.,
-        store_path: Optional[str] = None,
+        store_grads_path: Optional[str] = None,
         orthogonal_projection: Optional[torch.Tensor] = None
     ):
         """Step function."""
@@ -364,7 +364,12 @@ class PrivacyEngine(object):
             # TODO: Orthogonal projection not supported in ghost clipping.
             self._ghost_step(loss=loss)
         else:
-            self._step(loss=loss, scale=scale, store_path=store_path, orthogonal_projection=orthogonal_projection)
+            self._step(
+                loss=loss,
+                scale=scale,
+                store_grads_path=store_grads_path,
+                orthogonal_projection=orthogonal_projection
+            )
 
     @torch.no_grad()
     def virtual_step(self, loss: torch.Tensor, scale=1.):
@@ -390,7 +395,7 @@ class PrivacyEngine(object):
         self,
         loss,
         scale,
-        store_path,
+        store_grads_path,
         orthogonal_projection
     ):
         """Create noisy gradients.
@@ -406,7 +411,7 @@ class PrivacyEngine(object):
         Args:
             loss: The per-example loss; a 1-D tensor.
             scale: The loss up-scaling factor in amp. In full precision, this arg isn't useful.
-            store_path: Path to store gradients flattened and moved to CPU. Doesn't do anything if None.
+            store_grads_path: Path to store gradients flattened and moved to CPU. Doesn't do anything if None.
             orthogonal_projection: len(param) x len(param) sized orthogonal projection matrix.
                 Project the summed gradients to this subspace. Doesn't do anything if None.
         """
@@ -420,14 +425,14 @@ class PrivacyEngine(object):
         self.min_clip = coef_sample.min().item()
         self.med_clip = coef_sample.median().item()
 
-        # --- code for low rank analysis project ---
+        # --- low rank analysis project ---
         def _get_flat_grad():
             """Get the flat summed clipped gradients."""
             return torch.cat([param.summed_grad.flatten() for _, param in self.named_params])
 
-        if store_path is not None:  # Store the flat summed clipped gradients.
+        if store_grads_path is not None:  # Store the flat summed clipped gradients.
             flat_grad = _get_flat_grad()
-            torch.save({"flat_grad": flat_grad.cpu().float()}, store_path)
+            torch.save({"flat_grad": flat_grad.cpu().float()}, store_grads_path)
 
         if orthogonal_projection is not None:
             flat_grad = _get_flat_grad()

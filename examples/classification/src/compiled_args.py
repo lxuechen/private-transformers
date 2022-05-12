@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 import transformers
 
 from .common import true_tags
+from typing import Optional
 
 
 @dataclass
@@ -65,5 +66,9 @@ class AuxiliaryArguments:
     max_spectrum_batches: int = field(default=100)
     max_lanczos_iter: int = field(default=100)
 
+    store_grads: str = field(default="no")
+    orthogonal_projection_path: Optional[str] = field(default=None)
+
     def __post_init__(self):
         self.eval_spectrum = self.eval_spectrum.lower() in true_tags  # noqa
+        self.store_grads = self.store_grads.lower() in true_tags  # noqa

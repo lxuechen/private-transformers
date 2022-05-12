@@ -350,17 +350,32 @@ class Trainer(transformers.Trainer):
         tr_loss = torch.tensor(0.0).to(self.args.device)
         logging_loss_scalar = 0.0
 
+        # --- low rank analysis project ---
+        orthogonal_projection_path = self.auxiliary_args.orthogonal_projection_path
+        if orthogonal_projection_path is None:
+            orthogonal_projection = None
+        else:
+            # Kept on CPU during most of the time of training.
+            orthogonal_projection = torch.load(orthogonal_projection_path)
+
+        if self.auxiliary_args.store_grads:
+            store_grads_dir = utils.join(self.args.output_dir, 'grad_trajectory')
+            utils.makedirs(store_grads_dir, exist_ok=True)
+        else:
+            store_grads_dir = None
+        # ---
+
+        # --- in case no training happens ---
+        epoch = 0
+        metrics = None
+        # ---
+
         if self.args.evaluate_before_training:
             logging_loss_scalar = self.evaluate_and_log(
                 tr_loss=tr_loss,
                 logging_loss_scalar=logging_loss_scalar,
                 scheduler=scheduler,
             )
-
-        # --- lxuechen: In case no training happens.
-        epoch = 0
-        metrics = None
-        # ---
 
         train_iterator = trange(epochs_trained, int(num_train_epochs), desc="Epoch", disable=not self.is_local_master())
         for epoch in train_iterator:
@@ -403,8 +418,17 @@ class Trainer(transformers.Trainer):
                         torch.nn.utils.clip_grad_norm_(model.parameters(), self.args.max_grad_norm)
                         optimizer.step()
                     else:
+                        if store_grads_dir is None:
+                            store_grads_path = None
+                        else:
+                            store_grads_path = utils.join(store_grads_dir, f'global_step_{self.global_step:06d}.ckpt')
+
                         vector_loss = losses.get("vector_loss")
-                        self.optimizer.step(loss=vector_loss)  # noqa
+                        self.optimizer.step(
+                            loss=vector_loss,
+                            orthogonal_projection=orthogonal_projection,
+                            store_grads_path=store_grads_path,
+                        )
 
                     scheduler.step()
                     model.zero_grad(set_to_none=True)

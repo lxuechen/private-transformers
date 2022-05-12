@@ -17,4 +17,5 @@ CUDA_VISIBLE_DEVICES=0 python -m classification.run_wrapper \
   --max_spectrum_batches 400 \
   --max_lanczos_iter 100 \
   --randomly_initialize "no" \
-  --ghost_clipping "no"
+  --ghost_clipping "no" \
+  --store_grads "yes"

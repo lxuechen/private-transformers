@@ -28,6 +28,7 @@ def _get_command(
     eval_spectrum,
     max_spectrum_batches,
     max_lanczos_iter,
+    store_grads,
 ):
     task_name_to_factor = {
         "sst-2": 1, "qnli": 2, "qqp": 6, "mnli": 6,
@@ -82,7 +83,8 @@ python -m classification.run_classification \
   --first_sent_limit 200 --other_sent_limit 200 --truncate_head yes \
   --attention_only {attention_only} --static_lm_head {static_lm_head} --static_embedding {static_embedding} \
   --randomly_initialize {randomly_initialize} \
-  --eval_spectrum {eval_spectrum} --max_spectrum_batches {max_spectrum_batches} --max_lanczos_iter {max_lanczos_iter}
+  --eval_spectrum {eval_spectrum} --max_spectrum_batches {max_spectrum_batches} --max_lanczos_iter {max_lanczos_iter} \
+  --store_grads {store_grads}
     '''
 
 
@@ -107,6 +109,7 @@ def main(
     randomly_initialize="no",
     batch_size=None,
     num_train_epochs=None,
+    store_grads="no",
 ):
     command = _get_command(
         output_dir=output_dir,
@@ -129,6 +132,7 @@ def main(
         randomly_initialize=randomly_initialize,
         batch_size=batch_size,
         num_train_epochs=num_train_epochs,
+        store_grads=store_grads,
     )
     print('Running command:')
     print(command)
