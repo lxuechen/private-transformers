@@ -248,7 +248,7 @@ class PrivacyEngine(object):
         module = self.module
         autograd_grad_sample.remove_hooks(module)
         autograd_grad_sample.set_hooks_mode("default")  # This is super important when there are multiple attaches!
-        module.zero_grad(skip_grad=True)
+        module.zero_grad(skip_grad=True)  # noqa
         module.zero_grad = module.original_zero_grad
         delattr(module, "original_zero_grad")
 
@@ -361,6 +361,7 @@ class PrivacyEngine(object):
     ):
         """Step function."""
         if self.ghost_clipping:
+            # TODO: Orthogonal projection not supported in ghost clipping.
             self._ghost_step(loss=loss)
         else:
             self._step(loss=loss, scale=scale, store_path=store_path, orthogonal_projection=orthogonal_projection)
@@ -481,20 +482,16 @@ class PrivacyEngine(object):
 
     def _virtual_step(self, loss, scale):
         self._accumulate_summed_grad(loss=loss, scale=scale)
-        for name, param in self.named_params:
-            # Del everything except `.summed_grad` to save memory!
-            if hasattr(param, "grad_sample"):
-                # This must be deleted due to how `privacy_utils::supported_layers_grad_samplers.py` works!
-                #   When a parameter with `.grad_sample` is reused, the per-sample gradients are accumulated!
-                del param.grad_sample
-            if hasattr(param, "grad"):
-                del param.grad
 
     @torch.no_grad()
     def _accumulate_summed_grad(self, loss, scale):
-        """Accumulate signal by summing clipped gradients."""
+        """Accumulate signal by summing clipped gradients.
+
+        Removes `.grad_sample` and `.grad` for each variable that requires grad at the end.
+        """
         if loss.dim() != 1:
             raise ValueError(f"Expected `loss` to be a the per-example loss 1-D tensor.")
+
         with torch.enable_grad():
             loss.sum(dim=0).backward()
 
@@ -546,6 +543,15 @@ class PrivacyEngine(object):
                 param.summed_grad = 0.
             current_device = param.grad_sample.device
             param.summed_grad += torch.einsum("i,i...->...", coef_sample.to(current_device), param.grad_sample)
+
+            # Aggressive memory saving -- delete everything except `.summed_grad` to save memory!
+            if hasattr(param, "grad_sample"):
+                # This must be deleted due to how `privacy_utils::supported_layers_grad_samplers.py` works!
+                #   When a parameter with `.grad_sample` is reused, the per-sample gradients are accumulated!
+                del param.grad_sample
+            if hasattr(param, "grad"):
+                del param.grad
+
         return norm_sample, coef_sample
 
     def get_privacy_spent(self, steps=None, accounting_mode=None, lenient=False) -> Dict:
