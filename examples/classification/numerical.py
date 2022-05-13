@@ -139,7 +139,8 @@ def _check_qr_error(data: torch.Tensor, Q: torch.Tensor, save_mem: bool, disable
         err_abs = torch.sqrt(
             sum(
                 [
-                    (Q.matmul(data_mul_Q[idx][:, None].to(gpu, non_blocking=True)).squeeze() - data[idx]).norm(2) ** 2.
+                    (Q.matmul(data_mul_Q.T[:, idx:idx + 1].to(gpu, non_blocking=True)).squeeze() -
+                     data[idx].to(gpu, non_blocking=True)).norm(2) ** 2.
                     for idx in iterator
                 ]
             )
