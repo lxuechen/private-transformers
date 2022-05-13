@@ -7,6 +7,7 @@ TODO: Move this to swissknife.
 """
 import gc
 import logging
+from typing import Optional
 
 import fire
 from swissknife import utils
@@ -63,22 +64,23 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
     Q = torch.randn(size=(p, k))
     for _ in tqdm.tqdm(range(num_power_iteration), desc="power iter", disable=disable_tqdm):
         if save_mem:
-            data = data.to(gpu, non_blocking=True)
             # TODO: Chunk this.
             # TODO: Write helper function.
+            data = data.to(gpu, non_blocking=True)
+
             iterator = tqdm.tqdm(range(k), desc="R", disable=disable_tqdm)
             R = torch.stack([(data @ Q[:, col_idx].to(gpu, non_blocking=True)).cpu() for col_idx in iterator], dim=1)
             iterator = tqdm.tqdm(range(k), desc="Q", disable=disable_tqdm)
             Q = torch.stack([(data.T @ R[:, col_idx].to(gpu, non_blocking=True)).cpu() for col_idx in iterator], dim=1)
-            data = data.cpu()
 
+            data = data.cpu()
             gc.collect()
             torch.cuda.empty_cache()
-
             Q = Q.to(gpu, non_blocking=True)
-            Q = _orthogonalize(matrix=Q, disable_tqdm=disable_tqdm)  # pk; orthonormalize the columns.
-            Q = Q.cpu()
 
+            Q = _orthogonalize(matrix=Q, disable_tqdm=disable_tqdm)  # pk; orthonormalize the columns.
+
+            Q = Q.cpu()
             gc.collect()
             torch.cuda.empty_cache()
         else:
@@ -111,21 +113,36 @@ def _orthogonalize(matrix, disable_tqdm: bool):
     return matrix
 
 
-def _check_qr_error(data: torch.Tensor, Q: torch.Tensor, save_mem: bool, disable_tqdm: bool):
+def _check_qr_error(data: torch.Tensor, Q: torch.Tensor, save_mem: bool, disable_tqdm: bool,
+                    gpu: Optional[torch.device]):
     n, p = data.size()
     _, k = Q.size()
-    data = data.to(device)
-    Q = Q.cpu()
 
     if save_mem:
-        iterator = tqdm.tqdm(range(k), desc="check qr:: encode", disable=disable_tqdm)
-        data_mul_Q = torch.cat([(data.matmul(Q[:, idx][:, None].to(device))) for idx in iterator], dim=1)  # nk.
+        data = data.to(gpu, non_blocking=True)
 
+        iterator = tqdm.tqdm(range(k), desc="check qr:: encode", disable=disable_tqdm)
+        data_mul_Q = torch.cat(
+            [data.matmul(Q[:, idx][:, None].to(gpu, non_blocking=True)) for idx in iterator],
+            dim=1
+        )  # nk.
+
+        data = data.cpu()
         data_mul_Q = data_mul_Q.cpu()
-        Q = Q.to(device)
+        gc.collect()
+        torch.cuda.empty_cache()
+        Q = Q.to(gpu, non_blocking=True)
 
         iterator = tqdm.tqdm(range(n), desc="check qr:: decode", disable=disable_tqdm)
-        recon = torch.cat([(Q.matmul(data_mul_Q[idx][:, None].to(device))) for idx in iterator], dim=1).T  # np.
+        recon = torch.cat(
+            [(Q.matmul(data_mul_Q[idx][:, None].to(gpu, non_blocking=True))) for idx in iterator],
+            dim=1
+        ).T  # np.
+
+        del Q
+        recon = recon.cpu()
+        gc.collect()
+        torch.cuda.empty_cache()
     else:
         recon = data @ Q @ Q.T  # np.
 
