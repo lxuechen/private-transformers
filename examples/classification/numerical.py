@@ -25,10 +25,15 @@ def load_data(dir_, num_ckpts, varname):
     )
 
 
-def qr(grads_dir="/mnt/disks/disk-2/dump/classification/test/grad_trajectory", num_ckpts=1000, varname="flat_grad"):
+def qr(
+    grads_dir="/mnt/disks/disk-2/dump/classification/test/grad_trajectory",
+    num_ckpts=1000,
+    varname="flat_grad",
+    num_power_iteration=1
+):
     data = load_data(dir_=grads_dir, num_ckpts=num_ckpts, varname=varname)
     data = data.to(device)
-    Q = get_bases(data=data, k=500, num_power_iteration=2)
+    Q = get_bases(data=data, k=500, num_power_iteration=num_power_iteration)
 
 
 def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, disable_tqdm=False, verbose=True):
@@ -69,7 +74,10 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
 
 
 def _orthogonalize(matrix, disable_tqdm: bool):
-    """Gram-Schmidt."""
+    """Gram-Schmidt.
+
+    By far the slowest step, since cannot be parallelized.
+    """
     n, m = matrix.size()
     for i in tqdm.tqdm(range(m), desc="orthogonalize", disable=disable_tqdm):
         # Normalize the ith column.
