@@ -29,11 +29,16 @@ def qr(
     grads_dir="/mnt/disks/disk-2/dump/classification/test/grad_trajectory",
     num_ckpts=1000,
     varname="flat_grad",
-    num_power_iteration=1
+    num_power_iteration=1,
+    k=1000,
 ):
     data = load_data(dir_=grads_dir, num_ckpts=num_ckpts, varname=varname)
     data = data.to(device)
-    Q = get_bases(data=data, k=500, num_power_iteration=num_power_iteration)
+    Q = get_bases(data=data, k=k, num_power_iteration=num_power_iteration)
+    torch.save(
+        {"Q": Q},
+        utils.join(utils.dirname(grads_dir), 'orthogonal_projection.pt')
+    )
 
 
 def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, disable_tqdm=False, verbose=True):
@@ -57,6 +62,7 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
     for _ in tqdm.tqdm(range(num_power_iteration), desc="power iter", disable=disable_tqdm):
         if save_mem:
             # TODO: Chunk this.
+            # TODO: Write helper function.
             iterator = tqdm.tqdm(range(k), desc="R", disable=disable_tqdm)
             R = torch.stack([(data @ Q[:, col_idx].to(device)).cpu() for col_idx in iterator], dim=1)
             iterator = tqdm.tqdm(range(k), desc="Q", disable=disable_tqdm)
@@ -97,6 +103,7 @@ def _orthogonalize(matrix, disable_tqdm: bool):
 def _check_qr_error(data: torch.Tensor, Q: torch.Tensor, save_mem: bool, disable_tqdm: bool):
     n, p = data.size()
     _, k = Q.size()
+    data = data.to(device)
     Q = Q.cpu()
 
     if save_mem:
