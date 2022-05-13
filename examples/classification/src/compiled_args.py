@@ -68,6 +68,7 @@ class AuxiliaryArguments:
 
     store_grads: str = field(default="no")
     orthogonal_projection_path: Optional[str] = field(default=None)
+    orthogonal_projection_rank: int = field(default=100)
 
     def __post_init__(self):
         self.eval_spectrum = self.eval_spectrum.lower() in true_tags  # noqa

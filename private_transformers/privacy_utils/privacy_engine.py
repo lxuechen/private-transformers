@@ -438,7 +438,10 @@ class PrivacyEngine(object):
             flat_grad = _get_flat_grad()
             if orthogonal_projection.device != flat_grad.device or orthogonal_projection.dtype != flat_grad.dtype:
                 orthogonal_projection = orthogonal_projection.to(flat_grad)
-            flat_grad = orthogonal_projection @ flat_grad
+            Pg = torch.matmul(orthogonal_projection.T, flat_grad)
+            # Matrix multiplication with very large dimension (millions in this case) results in weird issues.
+            # In this case, torch.matmul fails due to calling some algo.
+            flat_grad = torch.mm(orthogonal_projection, Pg[:, None]).squeeze()
             grads = utils.flat_to_shape(
                 flat_tensor=flat_grad, shapes=[param.shape for _, param in self.named_params]
             )

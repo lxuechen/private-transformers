@@ -29,6 +29,8 @@ def _get_command(
     max_spectrum_batches,
     max_lanczos_iter,
     store_grads,
+    orthogonal_projection_path,
+    orthogonal_projection_rank,
 ):
     task_name_to_factor = {
         "sst-2": 1, "qnli": 2, "qqp": 6, "mnli": 6,
@@ -55,7 +57,7 @@ def _get_command(
     }[task_name]
 
     # Epochs chosen roughly to match e2e number of updates. We didn't hyperparameter tune on classification tasks :)
-    return f'''
+    cmd = f'''
 python -m classification.run_classification \
   --task_name {task_name} \
   --data_dir {data_dir} \
@@ -84,8 +86,11 @@ python -m classification.run_classification \
   --attention_only {attention_only} --static_lm_head {static_lm_head} --static_embedding {static_embedding} \
   --randomly_initialize {randomly_initialize} \
   --eval_spectrum {eval_spectrum} --max_spectrum_batches {max_spectrum_batches} --max_lanczos_iter {max_lanczos_iter} \
-  --store_grads {store_grads}
-    '''
+  --store_grads {store_grads}'''
+    if orthogonal_projection_path is not None:
+        cmd += f' --orthogonal_projection_path {orthogonal_projection_path}'
+        cmd += f' --orthogonal_projection_rank {orthogonal_projection_rank}'
+    return cmd
 
 
 def main(
@@ -110,6 +115,8 @@ def main(
     batch_size=None,
     num_train_epochs=None,
     store_grads="no",
+    orthogonal_projection_path=None,
+    orthogonal_projection_rank=100,
 ):
     command = _get_command(
         output_dir=output_dir,
@@ -133,6 +140,8 @@ def main(
         batch_size=batch_size,
         num_train_epochs=num_train_epochs,
         store_grads=store_grads,
+        orthogonal_projection_path=orthogonal_projection_path,
+        orthogonal_projection_rank=orthogonal_projection_rank,
     )
     print('Running command:')
     print(command)
