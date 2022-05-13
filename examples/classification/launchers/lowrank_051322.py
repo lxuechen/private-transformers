@@ -29,11 +29,12 @@ def _get_cmd(rank, seed):
 
 def main(
     seeds=(0, 1, 2),
+    ranks=(1, 10, 100, None),
 ):
     # python -m classification.launchers.lowrank_051322
     cmds = []
     for seed in seeds:
-        for rank in (1, 10, 100, None):
+        for rank in ranks:
             cmds.append(_get_cmd(rank=rank, seed=seed))
     utils.gpu_scheduler(commands=cmds, excludeID=(0,), excludeUUID=(0,))
 
