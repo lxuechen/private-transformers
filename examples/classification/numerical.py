@@ -89,7 +89,7 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
             Q = _orthogonalize(matrix=Q, disable_tqdm=disable_tqdm)  # pk; orthonormalize the columns.
 
     if verbose:
-        err_abs, err_rel = _check_qr_error(data=data, Q=Q, save_mem=save_mem, disable_tqdm=disable_tqdm)
+        err_abs, err_rel = _check_qr_error(data=data, Q=Q, save_mem=save_mem, disable_tqdm=disable_tqdm, gpu=gpu)
         logging.warning(f"abs error: {err_abs:.6f}, rel error: {err_rel:.6f}")
 
     return Q
@@ -120,6 +120,7 @@ def _check_qr_error(data: torch.Tensor, Q: torch.Tensor, save_mem: bool, disable
 
     if save_mem:
         data = data.to(gpu, non_blocking=True)
+        data_norm = data.norm(2).item()
 
         iterator = tqdm.tqdm(range(k), desc="check qr:: encode", disable=disable_tqdm)
         data_mul_Q = torch.cat(
@@ -134,20 +135,23 @@ def _check_qr_error(data: torch.Tensor, Q: torch.Tensor, save_mem: bool, disable
         Q = Q.to(gpu, non_blocking=True)
 
         iterator = tqdm.tqdm(range(n), desc="check qr:: decode", disable=disable_tqdm)
-        recon = torch.cat(
-            [(Q.matmul(data_mul_Q[idx][:, None].to(gpu, non_blocking=True))) for idx in iterator],
-            dim=1
-        ).T  # np.
 
-        del Q
-        recon = recon.cpu()
-        gc.collect()
-        torch.cuda.empty_cache()
+        err_abs = torch.sqrt(
+            sum(
+                [
+                    (Q.matmul(data_mul_Q[idx][:, None].to(gpu, non_blocking=True)).squeeze() - data[idx]).norm(2) ** 2.
+                    for idx in iterator
+                ]
+            )
+        )
+        err_rel = err_abs / data_norm
+
     else:
         recon = data @ Q @ Q.T  # np.
 
-    err_abs = (data - recon).norm(2)
-    err_rel = err_abs / data.norm(2)
+        err_abs = (data - recon).norm(2)
+        err_rel = err_abs / data.norm(2)
+
     return err_abs, err_rel
 
 
