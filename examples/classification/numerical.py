@@ -5,6 +5,7 @@ Currently only contains QR.
 
 TODO: Move this to swissknife.
 """
+import gc
 import logging
 
 import fire
@@ -33,15 +34,15 @@ def qr(
     k=1000,
 ):
     data = load_data(dir_=grads_dir, num_ckpts=num_ckpts, varname=varname)
-    data = data.to(device)
-    Q = get_bases(data=data, k=k, num_power_iteration=num_power_iteration)
+    Q = get_bases(data=data, k=k, num_power_iteration=num_power_iteration, gpu=device)
     torch.save(
         {"Q": Q},
         utils.join(utils.dirname(grads_dir), 'orthogonal_projection.pt')
     )
 
 
-def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, disable_tqdm=False, verbose=True):
+def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, disable_tqdm=False, verbose=True,
+              gpu=None):
     """QR algorithm for finding top-k eigenvectors.
 
     Args:
@@ -51,6 +52,7 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
         save_mem: If True, perform matmul in a for loop to save memory.
         disable_tqdm: If True, disable progress bar.
         verbose: If True, log the error of QR.
+        gpu: torch.device; defaults to CPU if None.
 
     Returns:
         Q: Tensor of selected basis of size (p, k).
@@ -61,16 +63,28 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
     Q = torch.randn(size=(p, k))
     for _ in tqdm.tqdm(range(num_power_iteration), desc="power iter", disable=disable_tqdm):
         if save_mem:
+            data = data.to(gpu, non_blocking=True)
             # TODO: Chunk this.
             # TODO: Write helper function.
             iterator = tqdm.tqdm(range(k), desc="R", disable=disable_tqdm)
-            R = torch.stack([(data @ Q[:, col_idx].to(device)).cpu() for col_idx in iterator], dim=1)
+            R = torch.stack([(data @ Q[:, col_idx].to(gpu, non_blocking=True)).cpu() for col_idx in iterator], dim=1)
             iterator = tqdm.tqdm(range(k), desc="Q", disable=disable_tqdm)
-            Q = torch.stack([(data.T @ R[:, col_idx].to(device)).cpu() for col_idx in iterator], dim=1)
+            Q = torch.stack([(data.T @ R[:, col_idx].to(gpu, non_blocking=True)).cpu() for col_idx in iterator], dim=1)
+            data = data.cpu()
+
+            gc.collect()
+            torch.cuda.empty_cache()
+
+            Q = Q.to(gpu, non_blocking=True)
+            Q = _orthogonalize(matrix=Q, disable_tqdm=disable_tqdm)  # pk; orthonormalize the columns.
+            Q = Q.cpu()
+
+            gc.collect()
+            torch.cuda.empty_cache()
         else:
             R = torch.matmul(data, Q)  # np, pk -> nk.
             Q = torch.matmul(data.T, R)  # pn, nk -> pk.
-        Q = _orthogonalize(matrix=Q, disable_tqdm=disable_tqdm)  # pk; orthonormalize the columns.
+            Q = _orthogonalize(matrix=Q, disable_tqdm=disable_tqdm)  # pk; orthonormalize the columns.
 
     if verbose:
         err_abs, err_rel = _check_qr_error(data=data, Q=Q, save_mem=save_mem, disable_tqdm=disable_tqdm)
@@ -84,9 +98,6 @@ def _orthogonalize(matrix, disable_tqdm: bool):
 
     By far the slowest step, since cannot be parallelized.
     """
-    default_device = matrix.device
-
-    matrix = matrix.to(device)
     n, m = matrix.size()
     for i in tqdm.tqdm(range(m), desc="orthogonalize", disable=disable_tqdm):
         # Normalize the ith column.
@@ -97,7 +108,7 @@ def _orthogonalize(matrix, disable_tqdm: bool):
             rest = matrix[:, i + 1:]
             rest -= torch.sum(col * rest, dim=0) * col
 
-    return matrix.to(default_device)
+    return matrix
 
 
 def _check_qr_error(data: torch.Tensor, Q: torch.Tensor, save_mem: bool, disable_tqdm: bool):
