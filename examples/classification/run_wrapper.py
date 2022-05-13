@@ -17,6 +17,7 @@ def _get_command(
     non_private,
     target_epsilon,
     few_shot_type,
+    seed,
     attention_only,
     static_lm_head,
     static_embedding,
@@ -66,7 +67,7 @@ python -m classification.run_classification \
   --model_name_or_path {model_name_or_path} \
   --few_shot_type {few_shot_type} \
   --num_k 1 \
-  --num_sample 1 --seed 0 \
+  --num_sample 1 --seed {seed} \
   --template {template} \
   --non_private {non_private} \
   --num_train_epochs {num_train_epochs} \
@@ -97,6 +98,7 @@ def main(
     output_dir,
     task_name,
     few_shot_type="prompt",
+    seed=42,
     model_name_or_path="roberta-base",
     data_dir="classification/data/original",
     learning_rate=0.0005,
@@ -128,6 +130,7 @@ def main(
         non_private=non_private,
         target_epsilon=target_epsilon,
         few_shot_type=few_shot_type,
+        seed=seed,
         attention_only=attention_only,
         static_lm_head=static_lm_head,
         static_embedding=static_embedding,
