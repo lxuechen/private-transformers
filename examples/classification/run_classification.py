@@ -1,9 +1,11 @@
 """Finetuning the library models for sequence classification on GLUE."""
 
 import collections
+import copy
 import dataclasses
 from dataclasses import dataclass, field
 from datetime import datetime
+import gc
 import json
 import logging
 import os
@@ -579,7 +581,19 @@ def main():
             model.get_input_embeddings().requires_grad_(False)
 
     if model_args.randomly_initialize:
+        # Only reinit the params which require gradients.
+        model_old = copy.deepcopy(model)  # Copy pretrained model.
         model.init_weights()
+
+        params = tuple(model.parameters())
+        params_old = tuple(model_old.parameters())
+        for param, param_old in utils.zip_(params, params_old):
+            if not param.requires_grad:
+                param.data.copy_(param_old.data)
+
+        del model_old
+        gc.collect()
+        torch.cuda.empty_cache()
 
     named_params = [(name, param) for name, param in model.named_parameters() if param.requires_grad]
     print('Params to update: ')
