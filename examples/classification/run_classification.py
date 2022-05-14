@@ -594,6 +594,7 @@ def main():
         del model_old
         gc.collect()
         torch.cuda.empty_cache()
+    print(f"attention_only: {model_args.attention_only} | randomly_initialize: {model_args.randomly_initialize}")
 
     named_params = [(name, param) for name, param in model.named_parameters() if param.requires_grad]
     print('Params to update: ')
