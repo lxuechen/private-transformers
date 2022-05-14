@@ -602,9 +602,6 @@ class Trainer(transformers.Trainer):
         if self.auxiliary_args.eval_spectrum:
             from ..spectrum import spectrum_utils
 
-            spectrum_outputs_dir = utils.join(self.args.output_dir, 'spectrum')
-            utils.makedirs(spectrum_outputs_dir, exist_ok=True)
-
             def loss_fn(batch, model):
                 batch = self._prepare_inputs(inputs=batch)
                 return self.compute_loss(
@@ -640,9 +637,9 @@ class Trainer(transformers.Trainer):
                 key: value.cpu().float() if torch.is_tensor(value) else value
                 for key, value in spectrum_outputs.items()
             }
-            torch.save(
+            utils.tsave(
                 state_dicts,
-                utils.join(spectrum_outputs_dir, f'global_step_{self.global_step:06d}.pt')
+                utils.join(self.args.output_dir, 'spectrum', f'global_step_{self.global_step:06d}.pt')
             )
 
             torch.set_default_dtype(default_dtype)
@@ -651,6 +648,18 @@ class Trainer(transformers.Trainer):
             del spectrum_outputs, state_dicts
             gc.collect()
             torch.cuda.empty_cache()
+        # ---
+
+        # ---
+        # Store grad params.
+        state_dicts = dict()
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                state_dicts[name] = param.data.cpu().float()
+        utils.tsave(
+            state_dicts,
+            utils.join(self.args.output_dir, 'grad_params', f'global_step_{self.global_step:06d}.pt')
+        )
         # ---
 
         return logging_loss_scalar
