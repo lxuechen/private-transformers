@@ -49,6 +49,12 @@ def _get_command(
         base_num_train_epochs = 3
         num_train_epochs = int(base_num_train_epochs * factor)
 
+    if learning_rate is None:
+        if non_private.lower() in ('yes', 'y', 'true', 't'):
+            learning_rate = 5e-5
+        else:
+            learning_rate = 5e-4
+
     data_dir = f"{data_dir}/{common.task_name2suffix_name[task_name]}"
     template = {
         "sst-2": "*cls**sent_0*_It_was*mask*.*sep+*",
@@ -101,7 +107,7 @@ def main(
     seed=42,
     model_name_or_path="roberta-base",
     data_dir="classification/data/original",
-    learning_rate=0.0005,
+    learning_rate=None,
     ghost_clipping="yes",
     non_private="no",
     target_epsilon=8,
