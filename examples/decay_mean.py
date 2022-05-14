@@ -181,18 +181,18 @@ def main(
         lrs = (1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1, 1, 3,)
 
     modes = Modes.all()
-    num_modes = len(modes)
 
-    # Tuple of best results; each result is of size (len(dims), len(seeds)).
-    losses = tuple([] for _ in range(num_modes))
-
+    tr_losses = {mode: [] for mode in modes}
+    te_losses = {mode: [] for mode in modes}
     for dim in tqdm.tqdm(dims, desc="dims"):
         betas = make_beta(n_train=n_train, n_test=n_test, d=dim, dmin=dmin, mu_beta=mu_beta, si_beta=si_beta)
         data = tuple(make_data(betas=betas, mode=mode, g0=g0) for mode in modes)
 
-        loss = [[sys.maxsize] for _ in range(num_modes)]  # a list (of best results over seed) for each mode.
-        for idx, (this_data, this_tag) in tqdm.tqdm(enumerate(utils.zip_(data, modes)), desc="modes", total=len(data)):
-            # hp tuning; 1) num_steps, 2) lr.
+        tr_loss = {mode: [sys.maxsize] for mode in modes}
+        te_loss = {mode: [sys.maxsize] for mode in modes}
+        for this_data, this_mode in tqdm.tqdm(utils.zip_(data, modes), desc="modes", total=len(data)):
+
+            # Hyperparameter tuning.
             for num_steps in num_steps_list:
                 for lr in lrs:
                     kwargs = dict(
@@ -204,41 +204,74 @@ def main(
                         weight_decay=weight_decay,
                         epsilon=epsilon,
                         delta=delta,
-                        tag=this_tag,
+                        tag=this_mode,
                         verbose=verbose,
                     )
 
-                    # TODO: train + test
-                    results = [train(**kwargs)[1] for seed in seeds]
-                    if np.mean(results) < np.mean(loss[idx]):
-                        loss[idx] = results
+                    tr_results = []
+                    te_results = []
+                    for seed in seeds:
+                        _, (a, b) = train(**kwargs)
+                        tr_results.append(a)
+                        te_results.append(b)
+
+                    if np.mean(tr_results) < np.mean(tr_loss[this_mode]):
+                        tr_loss[this_mode] = tr_results
+                        te_loss[this_mode] = te_results
 
         # update after hp tuning.
-        for this_losses, this_loss in utils.zip_(losses, loss):
-            this_losses.append(this_loss)
+        for this_mode in modes:
+            tr_losses[this_mode].append(tr_loss[this_mode])
+            te_losses[this_mode].append(te_loss[this_mode])
 
-    raw_data = dict(losses=losses, modes=modes, dims=dims)
+    raw_data = dict(tr_losses=tr_losses, te_losses=te_losses, modes=modes, dims=dims)
 
     if img_dir is not None:
         utils.jdump(raw_data, utils.join(img_dir, 'toyplot.json'))
-        img_path = utils.join(img_dir, 'toy.png')
-    else:
-        img_path = None
 
-    losses = [np.array(this_losses) for this_losses in losses]  # for using np.mean, np.std.
-    linestyles = ("-", "--", ":", "-.")
-    markers = ("o", "+", "x", "^")
-    plotting = dict(
-        errorbars=tuple(
-            dict(x=dims, y=np.mean(arr, axis=1), yerr=np.std(arr, axis=1), label=mode, marker=marker,
-                 linestyle=linestyle)
-            for arr, mode, linestyle, marker in utils.zip_(losses, modes, linestyles, markers)
-        ),
-        options=dict(xlabel="$d$", ylabel="$\mathbb{E}[ F(\\bar{x}) ]$")
-    )
-    utils.plot_wrapper(img_path=img_path, **plotting)
+        plot_modes = (Modes.const, Modes.sqrt, Modes.linear, Modes.quadratic)
+        linestyles = ("-", "--", ":", "-.")
+        markers = ("o", "+", "x", "^")
+
+        tr_plotting = dict(
+            errorbars=tuple(
+                dict(
+                    x=dims,
+                    y=np.mean(np.array(tr_losses[this_mode]), axis=1),
+                    yerr=np.std(np.array(tr_losses[this_mode]), axis=1),
+                    label=this_mode, marker=markers[mode_idx],
+                    linestyle=linestyles[mode_idx]
+                )
+                for mode_idx, this_mode in enumerate(plot_modes)
+            ),
+            options=dict(xlabel="$d$", ylabel="$\mathbb{E}[ F(\\bar{x}) ]$")
+        )
+        utils.plot_wrapper(
+            img_path=utils.join(img_dir, 'trplot'),
+            suffixes=('.png', '.pdf'),
+            **tr_plotting,
+        )
+
+        te_plotting = dict(
+            errorbars=tuple(
+                dict(
+                    x=dims,
+                    y=np.mean(np.array(te_losses[this_mode]), axis=1),
+                    yerr=np.std(np.array(te_losses[this_mode]), axis=1),
+                    label=this_mode, marker=markers[mode_idx],
+                    linestyle=linestyles[mode_idx]
+                )
+                for mode_idx, this_mode in enumerate(plot_modes)
+            ),
+            options=dict(xlabel="$d$", ylabel="$\mathbb{E}[ F(\\bar{x}) ]$")
+        )
+        utils.plot_wrapper(
+            img_path=utils.join(img_dir, 'teplot'),
+            suffixes=('.png', '.pdf'),
+            **te_plotting,
+        )
 
 
 if __name__ == "__main__":
-    # CUDA_VISIBLE_DEVICES=1 python decay_mean.py --img_dir "/mnt/disks/disk-2/dump/spectrum/toy5"
+    # CUDA_VISIBLE_DEVICES=3 python decay_mean.py --img_dir "/mnt/disks/disk-2/dump/spectrum/toy5"
     fire.Fire(main)
