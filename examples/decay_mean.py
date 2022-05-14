@@ -5,6 +5,7 @@ import dataclasses
 import logging
 import math
 import sys
+from typing import Tuple
 
 import fire
 import numpy as np
@@ -17,53 +18,85 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 @dataclasses.dataclass
 class Data:
-    beta: torch.Tensor
+    beta_train: torch.Tensor
+    beta_test: torch.Tensor
     Ar: torch.Tensor  # A^{1/2}.
     sensitivity: float
 
+    def __post_init__(self):
+        self.n_train, self.d = self.beta_train.size()
+        self.n_test = self.beta_test.shape[0]
+
+
+class Modes(metaclass=utils.ContainerMeta):
+    const = "const"
+    quarter = "quarter"
+    sqrt = "sqrt"
+    linear = "linear"
+    quadratic = "quadratic"
+
 
 def make_data(
-    beta=None,
-    n=100000, d=10, dmin=1, mu_beta=0.2, si_beta=0.1,
+    betas=None,
+    n_train=100000, n_test=100000, d=10, dmin=1, mu_beta=0.2, si_beta=0.1,
     mode="linear",
-    G0=1.,
+    g0=1.,
 ):
-    if beta is None:
-        beta = make_beta(n=n, d=d, dmin=dmin, mu_beta=mu_beta, si_beta=si_beta)
-    d = beta.size(1)
+    if betas is None:
+        beta_train, beta_test = make_beta(
+            n_train=n_train, n_test=n_test, d=d, dmin=dmin, mu_beta=mu_beta, si_beta=si_beta
+        )
+    else:
+        beta_train, beta_test = betas
+        n_train, d = beta_train.size()
+        n_test, _ = beta_test.size()
 
-    if mode == "const":
-        Ar = G0 * torch.arange(1, d + 1, device=device)
-    elif mode == "sqrt":
-        Ar = G0 * torch.arange(1, d + 1, device=device) ** -.2  # TODO: Not actually sqrt.
-    elif mode == "linear":
-        Ar = G0 * torch.arange(1, d + 1, device=device) ** -1.
-    elif mode == "quadratic":
-        Ar = G0 * torch.arange(1, d + 1, device=device) ** -2.
+    if mode == Modes.const:
+        Ar = g0 * torch.arange(1, d + 1, device=device)
+    elif mode == Modes.quarter:
+        Ar = g0 * torch.arange(1, d + 1, device=device) ** -.25
+    elif mode == Modes.sqrt:
+        Ar = g0 * torch.arange(1, d + 1, device=device) ** -.5
+    elif mode == Modes.linear:
+        Ar = g0 * torch.arange(1, d + 1, device=device) ** -1.
+    elif mode == Modes.quadratic:
+        Ar = g0 * torch.arange(1, d + 1, device=device) ** -2.
     else:
         raise ValueError(f"Unknown mode: {mode}")
 
-    sensitivity = 2 * G0 / n
+    sensitivity = 2 * g0 / n_train
 
-    return Data(beta=beta, Ar=Ar, sensitivity=sensitivity)
+    return Data(beta_train=beta_train, beta_test=beta_test, Ar=Ar, sensitivity=sensitivity)
 
 
-def make_beta(n, d, dmin, mu_beta, si_beta):
+def make_beta(n_train, n_test, d, dmin, mu_beta, si_beta):
     if d < dmin:
         raise ValueError(f"d < dmin")
-    beta = mu_beta + torch.randn(size=(n, d), device=device) * si_beta
-    beta[:, dmin:] = 0.  # Ensure init distance to opt is the same.
-    return beta
+
+    beta_train = mu_beta + torch.randn(size=(n_train, d), device=device) * si_beta
+    beta_train[:, dmin:] = 0.  # Ensure init distance to opt is the same.
+
+    beta_test = mu_beta + torch.randn(size=(n_test, d), device=device) * si_beta
+    beta_test[:, dmin:] = 0.  # Same distribution as train.
+
+    return beta_train, beta_test
 
 
-def evaluate(data, beta):
-    # 1 / n sum_i | A^{1/2} (beta_i - beta) |
-    res = (data.Ar[None, :] * (data.beta - beta))  # (n, d).
-    return res.norm(2, dim=1).mean(dim=0).item()
+def evaluate(data: Data, beta: torch.Tensor) -> Tuple:
+    """Compute loss 1 / n sum_i | A^{1/2} (beta - beta_i) |_2 for train and test."""
+
+    def compute_loss(samples):
+        res = data.Ar[None, :] * (beta - samples)  # (n, d).
+        return res.norm(2, dim=1).mean(dim=0).item()
+
+    return tuple(
+        compute_loss(samples=samples)
+        for samples in (data.beta_train, data.beta_test)
+    )
 
 
-def train_one_step(data, beta, lr, epsilon, delta, weight_decay):
-    res = data.Ar[None, :] * (beta - data.beta)  # (n, d).
+def train_one_step(data: Data, beta, lr, epsilon, delta, weight_decay):
+    res = data.Ar[None, :] * (beta - data.beta_train)  # (n, d).
     grad = data.Ar * (res / res.norm(2, dim=1, keepdim=True)).mean(dim=0)
 
     gaussian_mechanism_variance = 2. * math.log(1.25 / delta) * data.sensitivity ** 2. / epsilon ** 2.
@@ -73,18 +106,21 @@ def train_one_step(data, beta, lr, epsilon, delta, weight_decay):
 
 
 @torch.no_grad()
-def train(data, num_steps, eval_steps, lr, weight_decay, epsilon, delta, tag, verbose):
+def train(data: Data, num_steps, eval_steps, lr, weight_decay, epsilon, delta, tag, verbose):
     per_step_epsilon, per_step_delta = make_per_step_privacy_spending(
         target_epsilon=epsilon, target_delta=delta, num_steps=num_steps
     )
-    beta = torch.zeros(size=(1, data.beta.size(1),), device=device)
+
+    beta = torch.zeros(size=(1, data.d,), device=device)
     beta_avg = beta.clone()
+
     for global_step in range(0, num_steps):
         if global_step % eval_steps == 0:
-            mdist = evaluate(data=data, beta=beta_avg)
+            tr_loss, te_loss = evaluate(data=data, beta=beta_avg)
             if verbose:
                 logging.warning(
-                    f"tag: {tag}, global_step: {global_step}, lr: {lr:.6f}, num_steps: {num_steps}, mdist: {mdist:.6f}"
+                    f"tag: {tag}, global_step: {global_step}, lr: {lr:.6f}, num_steps: {num_steps}, "
+                    f"train_loss: {tr_loss:.6f}, test_loss: {te_loss:.6f}"
                 )
 
         beta = train_one_step(
@@ -95,11 +131,14 @@ def train(data, num_steps, eval_steps, lr, weight_decay, epsilon, delta, tag, ve
         )
         beta_avg = beta_avg * global_step / (global_step + 1) + beta / (global_step + 1)
 
-    mdist = evaluate(data=data, beta=beta_avg)
+    final_tr_loss, final_te_loss = evaluate(data=data, beta=beta_avg)
     if verbose:
-        logging.warning(f"tag: {tag}, final, lr: {lr:.6f}, num_steps: {num_steps}, mdist: {mdist:.6f}")
+        logging.warning(
+            f"tag: {tag}, final, lr: {lr:.6f}, num_steps: {num_steps}, "
+            f"train_loss: {final_tr_loss:.6f}, te_loss: {final_te_loss:.6f}"
+        )
 
-    return beta_avg, mdist
+    return beta_avg, (final_tr_loss, final_te_loss)
 
 
 def make_per_step_privacy_spending(
@@ -122,13 +161,15 @@ def make_per_step_privacy_spending(
             maxval = midval
         else:
             minval = midval
-    per_step_epsilon = midval
+    per_step_epsilon = minval
     return per_step_epsilon, per_step_delta
 
 
 def main(
-    img_dir=None, eval_steps=10000, weight_decay=0, epsilon=3, delta=1e-6, seeds=(42, 96, 10000),
+    img_dir=None, eval_steps=10000, weight_decay=0, epsilon=3, delta=1e-6,
+    n_train=100000, n_test=100000, dmin=1, mu_beta=1., si_beta=1., g0=1.,
     verbose=False, quick=False,
+    seeds=(42, 96, 10000),  # Some arbitrary numbers.
 ):
     if quick:
         dims = (10, 50,)
@@ -139,14 +180,15 @@ def main(
         num_steps_list = (10, 20, 40, 80, 160, 320, 640, 1280, 2560, 5120)
         lrs = (1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1, 1, 3,)
 
-    modes = ("const", "sqrt", "linear", "quadratic")
+    modes = Modes.all()
     num_modes = len(modes)
-    # tuple of best results; each result is of size (len(dims), len(seeds)).
+
+    # Tuple of best results; each result is of size (len(dims), len(seeds)).
     losses = tuple([] for _ in range(num_modes))
 
     for dim in tqdm.tqdm(dims, desc="dims"):
-        beta = make_beta(n=100000, d=dim, dmin=1, mu_beta=0.2, si_beta=0.1)
-        data = tuple(make_data(beta=beta, mode=mode, G0=1.) for mode in modes)
+        betas = make_beta(n_train=n_train, n_test=n_test, d=dim, dmin=dmin, mu_beta=mu_beta, si_beta=si_beta)
+        data = tuple(make_data(betas=betas, mode=mode, g0=g0) for mode in modes)
 
         loss = [[sys.maxsize] for _ in range(num_modes)]  # a list (of best results over seed) for each mode.
         for idx, (this_data, this_tag) in tqdm.tqdm(enumerate(utils.zip_(data, modes)), desc="modes", total=len(data)):
@@ -166,6 +208,7 @@ def main(
                         verbose=verbose,
                     )
 
+                    # TODO: train + test
                     results = [train(**kwargs)[1] for seed in seeds]
                     if np.mean(results) < np.mean(loss[idx]):
                         loss[idx] = results
@@ -197,6 +240,5 @@ def main(
 
 
 if __name__ == "__main__":
-    # TODO: report test loss. try other decay types.
-    # CUDA_VISIBLE_DEVICES=1 python decay_mean.py --img_dir "/mnt/disks/disk-2/dump/spectrum/toy4"
+    # CUDA_VISIBLE_DEVICES=1 python decay_mean.py --img_dir "/mnt/disks/disk-2/dump/spectrum/toy5"
     fire.Fire(main)
