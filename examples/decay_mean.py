@@ -167,20 +167,19 @@ def make_per_step_privacy_spending(
 
 def main(
     img_dir=None, eval_steps=10000, weight_decay=0, epsilon=3, delta=1e-6,
-    n_train=100000, n_test=100000, dmin=1, mu_beta=1., si_beta=1., g0=1.,
+    n_train=100000, n_test=100000, dmin=10, mu_beta=1., si_beta=0.3, g0=2.,
     verbose=False, quick=False,
-    seeds=(42, 96, 10000),  # Some arbitrary numbers.
+    seeds=(42, 96, 10000, 999, 101),  # Some arbitrary numbers.
+    modes=(Modes.const, Modes.sqrt, Modes.linear),
 ):
     if quick:
         dims = (10, 50,)
         num_steps_list = (10, 20,)
         lrs = (1e-4, 3e-4,)
     else:
-        dims = (10, 50, 100, 500, 1000)
+        dims = (10, 20, 50, 100, 200, 500, 1000)
         num_steps_list = (10, 20, 40, 80, 160, 320, 640, 1280, 2560, 5120)
         lrs = (1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1, 1, 3,)
-
-    modes = Modes.all()
 
     tr_losses = {mode: [] for mode in modes}
     te_losses = {mode: [] for mode in modes}
@@ -229,7 +228,7 @@ def main(
     if img_dir is not None:
         utils.jdump(raw_data, utils.join(img_dir, 'toyplot.json'))
 
-        plot_modes = (Modes.const, Modes.sqrt, Modes.linear, Modes.quadratic)
+        plot_modes = modes
         linestyles = ("-", "--", ":", "-.")
         markers = ("o", "+", "x", "^")
 
@@ -273,5 +272,5 @@ def main(
 
 
 if __name__ == "__main__":
-    # CUDA_VISIBLE_DEVICES=3 python decay_mean.py --img_dir "/mnt/disks/disk-2/dump/spectrum/toy5"
+    # CUDA_VISIBLE_DEVICES=3 python decay_mean.py --img_dir "/mnt/disks/disk-2/dump/spectrum/toy6"
     fire.Fire(main)
