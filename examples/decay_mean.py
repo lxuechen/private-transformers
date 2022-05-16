@@ -167,7 +167,7 @@ def make_per_step_privacy_spending(
 
 def main(
     img_dir=None, eval_steps=10000, weight_decay=0, epsilon=3, delta=1e-6,
-    n_train=100000, n_test=100000, dmin=10, mu_beta=1., si_beta=0.3, g0=2.,
+    n_train=10000, n_test=10000, dmin=10, mu_beta=1., si_beta=1, g0=3.,
     verbose=False, quick=False,
     seeds=(42, 96, 10000, 999, 101),  # Some arbitrary numbers.
     modes=(Modes.const, Modes.sqrt, Modes.linear),
@@ -243,7 +243,7 @@ def main(
                 )
                 for mode_idx, this_mode in enumerate(plot_modes)
             ),
-            options=dict(xlabel="$d$", ylabel="$\mathbb{E}[ F(\\bar{x}) ]$")
+            options=dict(xlabel="$d$", ylabel="train loss")
         )
         utils.plot_wrapper(
             img_path=utils.join(img_dir, 'trplot'),
@@ -262,7 +262,7 @@ def main(
                 )
                 for mode_idx, this_mode in enumerate(plot_modes)
             ),
-            options=dict(xlabel="$d$", ylabel="$\mathbb{E}[ F(\\bar{x}) ]$")
+            options=dict(xlabel="$d$", ylabel="test loss")
         )
         utils.plot_wrapper(
             img_path=utils.join(img_dir, 'teplot'),
