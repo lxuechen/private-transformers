@@ -41,7 +41,9 @@ def qr(
 
 def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, disable_tqdm=False, verbose=True,
               gpu=None, dump_dir=None):
-    """QR algorithm for finding top-k eigenvectors.
+    """Simultaneous iteration for finding eigenvectors with the largest eigenvalues in absolute value.
+
+    The method is aka subspace iteration or orthogonal iteration.
 
     Args:
         data: Tensor of size (n, p).
