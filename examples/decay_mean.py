@@ -106,7 +106,9 @@ def train_one_step(data: Data, beta, lr, epsilon, delta, weight_decay):
 
 
 @torch.no_grad()
-def train(data: Data, num_steps, eval_steps, lr, weight_decay, epsilon, delta, tag, verbose):
+def train(data: Data, num_steps, eval_steps, lr, weight_decay, epsilon, delta, tag, verbose, seed):
+    utils.manual_seed(seed)
+
     per_step_epsilon, per_step_delta = make_per_step_privacy_spending(
         target_epsilon=epsilon, target_delta=delta, num_steps=num_steps
     )
@@ -166,8 +168,8 @@ def make_per_step_privacy_spending(
 
 
 def main(
-    img_dir=None, eval_steps=10000, weight_decay=0, epsilon=3, delta=1e-6,
-    n_train=10000, n_test=10000, dmin=10, mu_beta=1., si_beta=1, g0=3.,
+    img_dir=None, eval_steps=10000, weight_decay=0, epsilon=2, delta=1e-6,
+    n_train=10000, n_test=10000, dmin=1, mu_beta=1., si_beta=1, g0=3.,
     verbose=False, quick=False,
     seeds=(42, 96, 10000, 999, 101),  # Some arbitrary numbers.
     modes=(Modes.const, Modes.sqrt, Modes.linear),
@@ -177,7 +179,7 @@ def main(
         num_steps_list = (10, 20,)
         lrs = (1e-4, 3e-4,)
     else:
-        dims = (10, 20, 50, 100, 200, 500, 1000)
+        dims = (20, 50, 100, 200, 500, 1000, 2000)
         num_steps_list = (10, 20, 40, 80, 160, 320, 640, 1280, 2560, 5120)
         lrs = (1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1, 1, 3,)
 
@@ -210,7 +212,7 @@ def main(
                     tr_results = []
                     te_results = []
                     for seed in seeds:
-                        _, (a, b) = train(**kwargs)
+                        _, (a, b) = train(**kwargs, seed=seed)
                         tr_results.append(a)
                         te_results.append(b)
 
