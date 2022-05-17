@@ -38,35 +38,38 @@ def qr(
     get_bases(data=data, k=k, num_power_iteration=num_power_iteration, gpu=device, dump_dir=dump_dir)
 
 
-def _mem_saving_matmul(mat1, mat2, gpu, disable_tqdm: bool, tag=None):
-    (n, k), (_, m) = mat1.size(), mat2.size()
-    mat1_a, mat1_b = torch.chunk(mat1, chunks=2, dim=0)
-
+def _mem_saving_matmul(mat1, mat2, gpu, disable_tqdm: bool, tag=None, chunks1=2, chunks2=100):
+    # (n x p) x (p x k); most intensive dimension should be p.
     out = []
+
+    mat1_seq = torch.chunk(mat1, chunks=chunks1, dim=0)
     outer_tag = "outer" if tag is None else f"outer ({tag})"
-    outer_iterator = tqdm.tqdm((mat1_a, mat1_b), desc=outer_tag, disable=disable_tqdm)
-    for mat in outer_iterator:
-        mat = mat.to(gpu)
+    outer_iterator = tqdm.tqdm(mat1_seq, desc=outer_tag, disable=disable_tqdm)
+    for this_mat1 in outer_iterator:
+        this_mat1 = this_mat1.to(gpu)
         section_out = []
+
+        mat2_seq = torch.chunk(mat2, chunks=chunks2, dim=1)
         inner_tag = "inner" if tag is None else f"inner ({tag})"
-        inner_iterator = tqdm.tqdm(range(m), desc=inner_tag, disable=disable_tqdm)
-        for idx in inner_iterator:
+        inner_iterator = tqdm.tqdm(mat2_seq, desc=inner_tag, disable=disable_tqdm)
+        for this_mat2 in inner_iterator:
             section_out.append(
-                torch.mm(mat, mat2[:, idx:idx + 1].to(gpu)).squeeze().cpu()
+                torch.mm(this_mat1, this_mat2.to(gpu)).cpu()
             )
         out.append(
-            torch.stack(section_out, dim=1)
+            torch.cat(section_out, dim=1)
         )
 
-        del mat
+        del this_mat1, this_mat2
         gc.collect()
         torch.cuda.empty_cache()
 
-    return torch.cat(out, dim=0)
+    out = torch.cat(out, dim=0)
+    return out
 
 
 def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, disable_tqdm=False, verbose=True,
-              gpu=None, dump_dir=None, stop_ratio=.999, dtype="float"):
+              gpu=None, dump_dir=None, stop_ratio=.999, dtype="float32"):
     """Simultaneous iteration for finding eigenvectors with the largest eigenvalues in absolute value.
 
     The method is aka subspace iteration or orthogonal iteration.
@@ -110,10 +113,15 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
             Q = torch.matmul(data.T, R)  # pn, nk -> pk.
         Q = _msg(matrix=Q, gpu=gpu, disable_tqdm=disable_tqdm)  # pk; orthonormalize the columns.
 
+        data = data.to(gpu)
         eigenvectors = Q
         eigenvalues = torch.stack(
-            [_rayleigh_quotient(mat=data.to(gpu), vec=q.to(gpu)) for q in eigenvectors.T],
+            [_rayleigh_quotient(mat=data, vec=q.to(gpu))
+             for q in tqdm.tqdm(eigenvectors.T, desc="eigenvalues")],
         ).cpu()
+        data = data.cpu()
+        gc.collect()
+        torch.cuda.empty_cache()
 
         err_abs, err_rel = _check_qr_error(data=data, Q=Q, save_mem=save_mem, disable_tqdm=disable_tqdm, gpu=gpu)
         logging.warning(f"abs error: {err_abs:.6f}, rel error: {err_rel:.6f}")
