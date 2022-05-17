@@ -34,6 +34,9 @@ def qr(
     num_power_iteration=100,
     k=2000,
 ):
+    logging.warning(f"grads_dir: {grads_dir}")
+    logging.warning(f"dump_dir: {dump_dir}")
+
     data = load_data(dir_=grads_dir, num_ckpts=num_ckpts, varname=varname)
     get_bases(data=data, k=k, num_power_iteration=num_power_iteration, gpu=device, dump_dir=dump_dir)
 
@@ -69,7 +72,7 @@ def _mem_saving_matmul(mat1, mat2, gpu, disable_tqdm: bool, tag=None, chunks1=2,
 
 
 def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, disable_tqdm=False, verbose=True,
-              gpu=None, dump_dir=None, stop_ratio=.999, dtype="float32"):
+              gpu=None, dump_dir=None, stop_ratio=.9999, dtype="float32"):
     """Simultaneous iteration for finding eigenvectors with the largest eigenvalues in absolute value.
 
     The method is aka subspace iteration or orthogonal iteration.
@@ -111,7 +114,7 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
         else:
             R = torch.matmul(data, Q)  # np, pk -> nk.
             Q = torch.matmul(data.T, R)  # pn, nk -> pk.
-        Q = _msg(matrix=Q, gpu=gpu, disable_tqdm=disable_tqdm)  # pk; orthonormalize the columns.
+        Q = _orthogonalize(matrix=Q, gpu=gpu, disable_tqdm=disable_tqdm)  # pk; orthonormalize the columns.
 
         data = data.to(gpu)
         eigenvectors = Q
@@ -136,35 +139,16 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
                 dump_path,
             )
 
-        # if err_abs > stop_ratio * prev_err_abs:
-        #     logging.warning("Reached breaking condition...")
-        #     break
+        if err_abs > stop_ratio * prev_err_abs:
+            logging.warning("Reached breaking condition...")
+            break
         prev_err_abs = err_abs
 
     return eigenvectors, eigenvalues  # noqa
 
 
-def _orthogonalize(matrix, gpu, disable_tqdm: bool):
-    """Gram-Schmidt.
-
-    By far the slowest step, since cannot be parallelized.
-    """
-    n, m = matrix.size()
-    matrix = matrix.to(gpu, non_blocking=True)
-    for i in tqdm.tqdm(range(m), desc="orthogonalize", disable=disable_tqdm):
-        # Normalize the ith column.
-        col = matrix[:, i: i + 1]
-        col /= col.norm(2)
-        # Remove contribution of this component for remaining columns.
-        if i + 1 < m:
-            rest = matrix[:, i + 1:]  # (p, r).
-            rest -= torch.mm(rest, torch.mm(rest.T, col))
-    matrix = matrix.cpu()
-    gc.collect()
-    torch.cuda.empty_cache()
-    return matrix
-
-
+# TODO: This is wrong.
+# TODO: write eigenvalue test for find bases
 def _msg(matrix, gpu, disable_tqdm: bool):
     """Modified Gram-Schmidt.
 
@@ -219,30 +203,51 @@ def _check_qr_error(data: torch.Tensor, Q: torch.Tensor, save_mem: bool, disable
     return err_abs.item(), err_rel.item()
 
 
-def test_qr_decomposition(p=100000, k=100):
-    torch.set_default_dtype(torch.float16)
-    Q = torch.randn(p, k, device=device) * 3
-    P1 = _orthogonalize(Q, gpu=device, disable_tqdm=True)
-    P2 = _msg(Q, gpu=device, disable_tqdm=True)
-    torch.testing.assert_allclose(P1, P2)
-    print('.')
+def _orthogonalize(matrix, gpu, disable_tqdm: bool):
+    """Gram-Schmidt.
+
+    By far the slowest step, since cannot be parallelized.
+    """
+    n, m = matrix.size()
+    matrix = matrix.to(gpu)
+    for i in tqdm.tqdm(range(m), desc="orthogonalize", disable=disable_tqdm):
+        # Normalize the ith column.
+        col = matrix[:, i: i + 1]
+        col /= col.norm(2)
+        # Remove contribution of this component for remaining columns.
+        if i + 1 < m:
+            rest = matrix[:, i + 1:]
+            rest -= torch.sum(col * rest, dim=0) * col
+
+    return matrix.cpu()
 
 
-def test_mem_saving_matmul():
-    torch.set_default_dtype(torch.float64)
-    mat1, mat2 = torch.randn(50, 1000), torch.randn(1000, 100)
-    mat1, mat2 = mat1.to(device), mat2.to(device)
-    mm1 = _mem_saving_matmul(mat1, mat2, gpu=device, disable_tqdm=True).to(device)
-    mm2 = mat1.matmul(mat2)
-    torch.testing.assert_allclose(mm1, mm2)
-    print('.')
+# def test_qr_decomposition(p=100000, k=100):
+#     torch.set_default_dtype(torch.float16)
+#     Q = torch.randn(p, k, device=device) * 3
+#     P1 = _orthogonalize(Q, gpu=device, disable_tqdm=True)
+#     P2 = _msg(Q, gpu=device, disable_tqdm=True)
+#     torch.testing.assert_allclose(P1, P2)
+#     print('.')
+#
+#
+# def test_mem_saving_matmul():
+#     torch.set_default_dtype(torch.float64)
+#     mat1, mat2 = torch.randn(50, 1000), torch.randn(1000, 100)
+#     mat1, mat2 = mat1.to(device), mat2.to(device)
+#     mm1 = _mem_saving_matmul(mat1, mat2, gpu=device, disable_tqdm=True).to(device)
+#     mm2 = mat1.matmul(mat2)
+#     torch.testing.assert_allclose(mm1, mm2)
+#     print('.')
 
 
 def main(task="qr", **kwargs):
     utils.runs_tasks(
         task=task,
-        task_names=("qr", "test_qr_decomposition", "test_mem_saving_matmul"),
-        task_callables=(qr, test_qr_decomposition, test_mem_saving_matmul),
+        task_names=("qr",),
+        task_callables=(qr,),
+        # task_names=("qr", "test_qr_decomposition", "test_mem_saving_matmul"),
+        # task_callables=(qr, test_qr_decomposition, test_mem_saving_matmul),
         **kwargs,
     )
 
