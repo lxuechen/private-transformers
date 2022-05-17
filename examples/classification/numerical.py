@@ -39,7 +39,7 @@ def qr(
 
 def _mem_saving_matmul(mat1, mat2, gpu):
     (n, k), (_, m) = mat1.size(), mat2.size()
-    mat1_a, mat1_b = torch.split(mat1, split_size_or_sections=2, dim=1)
+    mat1_a, mat1_b = torch.chunk(mat1, chunks=2, dim=0)
 
     out = []
     for mat in (mat1_a, mat1_b):
