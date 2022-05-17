@@ -28,13 +28,14 @@ def dump_grads():
 
 def get_bases():
     """Perform PCA for grad near local optimum."""
+    # TODO: Get this to 2k.
     cmd = '''python -m classification.numerical --task "qr"\
         --grads_dir "/mnt/disks/disk-2/dump/privlm/roberta/sst-2/grad_trajectory" \
         --dump_dir "/mnt/disks/disk-2/dump/privlm/roberta/sst-2/orthproj" \
-        --num_ckpts 2000 \
+        --num_ckpts 1000 \
         --varname "flat_grad" \
         --num_power_iteration 100 \
-        --k 2000'''
+        --k 1000'''
     utils.gpu_scheduler(commands=[cmd])
 
 
