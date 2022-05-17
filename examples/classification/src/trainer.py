@@ -357,7 +357,7 @@ class Trainer(transformers.Trainer):
         else:
             # Kept on CPU during most of the time of training.
             state_dicts = torch.load(orthogonal_projection_path)
-            orthogonal_projection = state_dicts.get("Q")[:, :self.auxiliary_args.orthogonal_projection_rank]
+            orthogonal_projection = state_dicts.get("eigenvectors")[:, :self.auxiliary_args.orthogonal_projection_rank]
 
         if self.auxiliary_args.store_grads:
             store_grads_dir = utils.join(self.args.output_dir, 'grad_trajectory')
