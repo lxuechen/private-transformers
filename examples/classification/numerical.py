@@ -171,23 +171,23 @@ def _msg(matrix, gpu, disable_tqdm: bool):
 
 
 def _check_qr_error(data: torch.Tensor, Q: torch.Tensor, save_mem: bool, disable_tqdm: bool,
-                    gpu: Optional[torch.device], chunks=10):
+                    gpu: Optional[torch.device], chunks=5):
     n, p = data.size()
     _, k = Q.size()
 
     if save_mem:
         data_mul_Q = _mem_saving_matmul(
-            mat1=data, mat2=Q, gpu=gpu, disable_tqdm=disable_tqdm, tag="check qr:: encode"
+            mat1=data, mat2=Q, gpu=gpu, disable_tqdm=disable_tqdm, tag="check qr::encode"
         )  # (n, k).
 
         new_data = _mem_saving_matmul(
-            mat1=Q, mat2=data_mul_Q.T, gpu=gpu, disable_tqdm=disable_tqdm, tag="check qr:: decode"
+            mat1=Q, mat2=data_mul_Q.T, gpu=gpu, disable_tqdm=disable_tqdm, tag="check qr::decode"
         ).T  # (n, p).
 
         a_chunks = torch.chunk(data, chunks=chunks, dim=0)
         b_chunks = torch.chunk(new_data, chunks=chunks, dim=0)
         err_abs = []
-        for ai, bi in tqdm.tqdm(utils.zip_(a_chunks, b_chunks), desc="check qr error chunks", total=chunks):
+        for ai, bi in tqdm.tqdm(utils.zip_(a_chunks, b_chunks), desc="check qr::error chunks", total=chunks):
             ai, bi = ai.to(gpu), bi.to(gpu)
             err_abs.append(
                 (ai - bi).norm(2) ** 2
@@ -222,11 +222,9 @@ def _orthogonalize(matrix, gpu, disable_tqdm: bool, batch_size=100):
             start_idx = 0
             while start_idx < r:
                 batch = rest[:, start_idx:start_idx + batch_size]
-                batch -= torch.mm(batch.T, col).squeeze() * col
+                # TODO: Broadcast, pointwise multiply, and then reduce seems to suffer from less imprecision.
+                batch -= torch.sum(col * batch, dim=0) * col
                 start_idx += batch_size
-
-            # rest -= torch.sum(col * rest, dim=0) * col
-            # rest -= torch.mm(rest.T, col).squeeze() * col
 
         gc.collect()
         torch.cuda.empty_cache()
