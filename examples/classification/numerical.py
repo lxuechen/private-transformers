@@ -185,7 +185,7 @@ def _msg(matrix, gpu, disable_tqdm: bool):
 
 
 def _check_qr_error(data: torch.Tensor, Q: torch.Tensor, save_mem: bool, disable_tqdm: bool,
-                    gpu: Optional[torch.device], chunks=2):
+                    gpu: Optional[torch.device], chunks=10):
     n, p = data.size()
     _, k = Q.size()
 
@@ -206,8 +206,8 @@ def _check_qr_error(data: torch.Tensor, Q: torch.Tensor, save_mem: bool, disable
             err_abs.append(
                 (ai - bi).norm(2) ** 2
             )
-        err_abs = torch.stack(err_abs).sum().sqrt().item()
-        err_rel = err_abs / data.to(gpu).norm(2).item()
+        err_abs = torch.stack(err_abs).sum().sqrt()
+        err_rel = err_abs / data.to(gpu).norm(2)
     else:
         recon = data @ Q @ Q.T  # np.
 
