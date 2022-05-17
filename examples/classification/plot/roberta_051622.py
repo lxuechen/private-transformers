@@ -1,26 +1,37 @@
 """
 Plot 1) spectral decay, 2) retrain curves.
-
-python -m classification.plot.roberta_051622
 """
 
 import fire
 
 from swissknife import utils
+import torch
 
 
-def plot1():
-    """Eigenvalues."""
-    pass
+# python -m classification.plot.roberta_051622 --task plot1
+def plot1(
+    ckpt_path=f"/mnt/disks/disk-2/dump/privlm/roberta/sst-2/orthproj/global_step_000002.pt"
+):
+    """Eigenvalues.
+
+    Run on gvm.
+    """
+    ckpt = torch.load(ckpt_path)
+    eigenvalues = ckpt["eigenvalues"]
+    print(eigenvalues.size())
 
 
+# python -m classification.plot.roberta_051622 --task plot2
 def plot2(
     seeds=(42,),
     ranks=(10, 20, 50, 100, None),
     base_dir="/Users/xuechenli/Desktop/dump_a100/privlm",
     dump_dir="./classification/plot",
 ):
-    """Retrain."""
+    """Retrain.
+
+    Run locally.
+    """
     errorbars = []
     for rank in ranks:
         results = []
@@ -49,6 +60,7 @@ def plot2(
     )
 
 
+# python -m classification.plot.roberta_051622 --task plot_all
 def plot_all():
     plot1()
     plot2()
