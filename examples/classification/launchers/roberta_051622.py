@@ -72,10 +72,10 @@ def get_bases_prompt():
 
 
 # python -m classification.launchers.roberta_051622 --task retrain
-def retrain(seeds=(42, 9008,)):
+def retrain(seeds=(42, 9008,), run=True):
     cmds = []
     for seed in seeds:
-        for rank in (None, 10, 20, 50, 100):
+        for rank in (10, 20, 50, 100, None):
             output_dir = f"/mnt/disks/disk-2/dump/privlm/roberta_retrain_{rank}_{seed}/sst-2"
             cmd = f'''python -m classification.run_wrapper \
           --output_dir {output_dir} \
@@ -98,14 +98,16 @@ def retrain(seeds=(42, 9008,)):
                 cmd += f' --orthogonal_projection_path "/mnt/disks/disk-2/dump/privlm/roberta/sst-2/orthproj/global_step_000002.pt"'
                 cmd += f' --orthogonal_projection_rank {rank}'
             cmds.append(cmd)
-    utils.gpu_scheduler(commands=cmds)
+    if run:
+        utils.gpu_scheduler(commands=cmds)
+    return cmds
 
 
 # python -m classification.launchers.roberta_051622 --task retrain_prompt
-def retrain_prompt(seeds=(42, 9008,)):
+def retrain_prompt(seeds=(42, 9008,), run=True):
     cmds = []
     for seed in seeds:
-        for rank in (None, 10, 20, 50, 100):
+        for rank in (10, 20, 50, 100, None):
             output_dir = f"/mnt/disks/disk-2/dump/privlm/roberta_prompt_retrain_{rank}_{seed}/sst-2"
             cmd = f'''python -m classification.run_wrapper \
           --output_dir {output_dir} \
@@ -128,6 +130,14 @@ def retrain_prompt(seeds=(42, 9008,)):
                 cmd += f' --orthogonal_projection_path "/mnt/disks/disk-2/dump/privlm/roberta_prompt/sst-2/orthproj/global_step_000002.pt"'
                 cmd += f' --orthogonal_projection_rank {rank}'
             cmds.append(cmd)
+
+    if run:
+        utils.gpu_scheduler(commands=cmds)
+    return cmds
+
+# python -m classification.launchers.roberta_051622 --task retrain_all
+def retrain_all():
+    cmds = retrain(run=False) + retrain_prompt(run=False)
     utils.gpu_scheduler(commands=cmds)
 
 
@@ -136,8 +146,12 @@ def main(
 ):
     utils.runs_tasks(
         task=task,
-        task_names=("dump_grads", "dump_grads_prompt", "get_bases", "get_bases_prompt", "retrain", "retrain_prompt"),
-        task_callables=(dump_grads, dump_grads_prompt, get_bases, get_bases_prompt, retrain, retrain_prompt)
+        task_names=(
+            "dump_grads", "dump_grads_prompt", "get_bases", "get_bases_prompt", "retrain", "retrain_prompt", "retrain_all"
+        ),
+        task_callables=(
+            dump_grads, dump_grads_prompt, get_bases, get_bases_prompt, retrain, retrain_prompt, retrain_all
+        )
     )
 
 
