@@ -1,9 +1,7 @@
 """
 Numerical algorithms.
 
-Currently only contains QR.
-
-TODO: Move this to swissknife.
+Currently, only contains simultaneous iter.
 """
 import gc
 import logging
@@ -55,16 +53,14 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
         gpu: torch.device; defaults to CPU if None.
 
     Returns:
-        Q: Tensor of selected basis of size (p, k).
-        error_rate: Tensor of size (1,) for relative tolerance.
+        eigenvectors: Tensor of selected basis of size (p, k).
+        eigenvalues: Tensor of eigenvalues of data.T @ data of size (k,).
     """
     n, p = data.size()
     k = min(k, p, n)
     Q = torch.randn(size=(p, k))
     for global_step in tqdm.tqdm(range(num_power_iteration), desc="power iter", disable=disable_tqdm):
         if save_mem:
-            # TODO: Chunk this.
-            # TODO: Write helper function.
             data = data.to(gpu, non_blocking=True)
 
             iterator = tqdm.tqdm(range(k), desc="R", disable=disable_tqdm)
@@ -100,7 +96,16 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
             if verbose:
                 logging.warning(f"abs error: {err_abs:.6f}, rel error: {err_rel:.6f}")
 
-    return Q
+    def _rayleigh_quotient(mat: torch.Tensor, vec: torch.Tensor):
+        """Compute v^t A^t A v / v^t v."""
+        mvp = torch.matmul(mat, vec)
+        return (mvp * mvp).sum() / (vec * vec).sum()
+
+    eigenvectors = Q
+    eigenvalues = torch.stack(
+        [_rayleigh_quotient(mat=data.to(gpu), vec=q.to(gpu)) for q in eigenvectors.T],
+    )
+    return eigenvectors, eigenvalues
 
 
 def _orthogonalize(matrix, disable_tqdm: bool):
