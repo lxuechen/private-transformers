@@ -47,7 +47,7 @@ def dump_grads_prompt():
 def get_bases():
     """Perform PCA for grad near local optimum."""
     # TODO: Get this to 2k.
-    cmd = '''python -m classification.numerical --task "qr"\
+    cmd = '''python -m classification.numerical --task "qr" \
         --grads_dir "/mnt/disks/disk-2/dump/privlm/roberta/sst-2/grad_trajectory" \
         --dump_dir "/mnt/disks/disk-2/dump/privlm/roberta/sst-2/orthproj" \
         --num_ckpts 1000 \
@@ -61,7 +61,7 @@ def get_bases():
 def get_bases_prompt():
     """Perform PCA for grad near local optimum."""
     # TODO: Get this to 2k.
-    cmd = '''python -m classification.numerical --task "qr"\
+    cmd = '''python -m classification.numerical --task "qr" \
         --grads_dir "/mnt/disks/disk-2/dump/privlm/roberta_prompt/sst-2/grad_trajectory" \
         --dump_dir "/mnt/disks/disk-2/dump/privlm/roberta_prompt/sst-2/orthproj" \
         --num_ckpts 1000 \
