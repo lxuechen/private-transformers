@@ -46,7 +46,7 @@ def _mem_saving_matmul(mat1, mat2, gpu, disable_tqdm: bool, tag=None, chunks1=2,
     outer_tag = "outer" if tag is None else f"outer ({tag})"
     outer_iterator = tqdm.tqdm(mat1_seq, desc=outer_tag, disable=disable_tqdm)
     for this_mat1 in outer_iterator:
-        this_mat1 = this_mat1.to(gpu)
+        this_mat1 = this_mat1.to(gpu, non_blocking=True)
         section_out = []
 
         mat2_seq = torch.chunk(mat2, chunks=chunks2, dim=1)
@@ -124,7 +124,9 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
         torch.cuda.empty_cache()
 
         err_abs, err_rel = _check_qr_error(data=data, Q=Q, save_mem=save_mem, disable_tqdm=disable_tqdm, gpu=gpu)
-        logging.warning(f"abs error: {err_abs:.6f}, rel error: {err_rel:.6f}")
+        logging.warning(
+            f"global_step: {global_step}, abs error: {err_abs:.6f}, rel error: {err_rel:.6f}"
+        )
 
         if dump_dir is not None:
             utils.makedirs(dump_dir, exist_ok=True)
@@ -134,9 +136,9 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
                 dump_path,
             )
 
-        if err_abs > stop_ratio * prev_err_abs:
-            logging.warning("Reached breaking condition...")
-            break
+        # if err_abs > stop_ratio * prev_err_abs:
+        #     logging.warning("Reached breaking condition...")
+        #     break
         prev_err_abs = err_abs
 
     return eigenvectors, eigenvalues  # noqa
@@ -148,7 +150,7 @@ def _orthogonalize(matrix, gpu, disable_tqdm: bool):
     By far the slowest step, since cannot be parallelized.
     """
     n, m = matrix.size()
-    matrix = matrix.to(gpu)
+    matrix = matrix.to(gpu, non_blocking=True)
     for i in tqdm.tqdm(range(m), desc="orthogonalize", disable=disable_tqdm):
         # Normalize the ith column.
         col = matrix[:, i: i + 1]
