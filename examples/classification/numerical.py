@@ -37,6 +37,29 @@ def qr(
     Q = get_bases(data=data, k=k, num_power_iteration=num_power_iteration, gpu=device, dump_dir=dump_dir)
 
 
+def _mem_saving_matmul(mat1, mat2, gpu):
+    (n, k), (_, m) = mat1.size(), mat2.size()
+    mat1_a, mat1_b = torch.split(mat1, split_size_or_sections=2, dim=1)
+
+    out = []
+    for mat in (mat1_a, mat1_b):
+        mat = mat.to(gpu)
+        section_out = []
+        for idx in range(m):
+            section_out.append(
+                (mat @ mat2[:, idx].to(gpu)).cpu()
+            )
+        out.append(
+            torch.stack(section_out, dim=1)
+        )
+
+        del mat
+        gc.collect()
+        torch.cuda.empty_cache()
+
+    return torch.cat(out, dim=0)
+
+
 def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, disable_tqdm=False, verbose=True,
               gpu=None, dump_dir=None):
     """Simultaneous iteration for finding eigenvectors with the largest eigenvalues in absolute value.
@@ -69,36 +92,22 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
 
     for global_step in tqdm.tqdm(range(num_power_iteration), desc="power iter", disable=disable_tqdm):
         if save_mem:
-            data = data.to(gpu, non_blocking=True)
-
-            iterator = tqdm.tqdm(range(k), desc="R", disable=disable_tqdm)
-            R = torch.stack([(data @ Q[:, col_idx].to(gpu, non_blocking=True)).cpu() for col_idx in iterator], dim=1)
-            iterator = tqdm.tqdm(range(k), desc="Q", disable=disable_tqdm)
-            Q = torch.stack([(data.T @ R[:, col_idx].to(gpu, non_blocking=True)).cpu() for col_idx in iterator], dim=1)
-
-            data = data.cpu()
-            gc.collect()
-            torch.cuda.empty_cache()
-            Q = Q.to(gpu, non_blocking=True)
-
-            Q = _orthogonalize(matrix=Q, disable_tqdm=disable_tqdm)  # pk; orthonormalize the columns.
-
-            Q = Q.cpu()
-            gc.collect()
-            torch.cuda.empty_cache()
+            R = _mem_saving_matmul(mat1=data, mat2=Q, gpu=gpu)
+            Q = _mem_saving_matmul(mat1=data.T, mat2=R, gpu=gpu)
         else:
             R = torch.matmul(data, Q)  # np, pk -> nk.
             Q = torch.matmul(data.T, R)  # pn, nk -> pk.
-            Q = _orthogonalize(matrix=Q, disable_tqdm=disable_tqdm)  # pk; orthonormalize the columns.
+        Q = _orthogonalize(matrix=Q, gpu=gpu, disable_tqdm=disable_tqdm)  # pk; orthonormalize the columns.
 
         eigenvectors = Q
         eigenvalues = torch.stack(
             [_rayleigh_quotient(mat=data.to(gpu), vec=q.to(gpu)) for q in eigenvectors.T],
         ).cpu()
 
-        if dump_dir is not None:
-            err_abs, err_rel = _check_qr_error(data=data, Q=Q, save_mem=save_mem, disable_tqdm=disable_tqdm, gpu=gpu)
+        # TODO: stop when the reconstruction error is stable.
+        err_abs, err_rel = _check_qr_error(data=data, Q=Q, save_mem=save_mem, disable_tqdm=disable_tqdm, gpu=gpu)
 
+        if dump_dir is not None:
             utils.makedirs(dump_dir, exist_ok=True)
             dump_path = utils.join(dump_dir, f"global_step_{global_step:06d}.pt")
             torch.save(
@@ -111,12 +120,13 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
     return eigenvectors, eigenvalues  # noqa
 
 
-def _orthogonalize(matrix, disable_tqdm: bool):
+def _orthogonalize(matrix, gpu, disable_tqdm: bool):
     """Gram-Schmidt.
 
     By far the slowest step, since cannot be parallelized.
     """
     n, m = matrix.size()
+    matrix = matrix.to(gpu)
     for i in tqdm.tqdm(range(m), desc="orthogonalize", disable=disable_tqdm):
         # Normalize the ith column.
         col = matrix[:, i: i + 1]
@@ -125,7 +135,9 @@ def _orthogonalize(matrix, disable_tqdm: bool):
         if i + 1 < m:
             rest = matrix[:, i + 1:]
             rest -= torch.sum(col * rest, dim=0) * col
-
+    matrix = matrix.cpu()
+    gc.collect()
+    torch.cuda.empty_cache()
     return matrix
 
 
