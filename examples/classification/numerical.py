@@ -38,15 +38,19 @@ def qr(
     get_bases(data=data, k=k, num_power_iteration=num_power_iteration, gpu=device, dump_dir=dump_dir)
 
 
-def _mem_saving_matmul(mat1, mat2, gpu):
+def _mem_saving_matmul(mat1, mat2, gpu, disable_tqdm: bool, tag=None):
     (n, k), (_, m) = mat1.size(), mat2.size()
     mat1_a, mat1_b = torch.chunk(mat1, chunks=2, dim=0)
 
     out = []
-    for mat in (mat1_a, mat1_b):
+    outer_tag = "outer" if tag is None else f"outer ({tag})"
+    outer_iterator = tqdm.tqdm((mat1_a, mat1_b), desc=outer_tag, disable=disable_tqdm)
+    for mat in outer_iterator:
         mat = mat.to(gpu)
         section_out = []
-        for idx in range(m):
+        inner_tag = "inner" if tag is None else f"inner ({tag})"
+        inner_iterator = tqdm.tqdm(range(m), desc=inner_tag, disable=disable_tqdm)
+        for idx in inner_iterator:
             section_out.append(
                 torch.mm(mat, mat2[:, idx:idx + 1].to(gpu)).squeeze().cpu()
             )
@@ -96,8 +100,8 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
 
     for global_step in tqdm.tqdm(range(num_power_iteration), desc="power iter", disable=disable_tqdm):
         if save_mem:
-            R = _mem_saving_matmul(mat1=data, mat2=Q, gpu=gpu)
-            Q = _mem_saving_matmul(mat1=data.T, mat2=R, gpu=gpu)
+            R = _mem_saving_matmul(mat1=data, mat2=Q, gpu=gpu, disable_tqdm=disable_tqdm, tag="R")
+            Q = _mem_saving_matmul(mat1=data.T, mat2=R, gpu=gpu, disable_tqdm=disable_tqdm, tag="Q")
         else:
             R = torch.matmul(data, Q)  # np, pk -> nk.
             Q = torch.matmul(data.T, R)  # pn, nk -> pk.
