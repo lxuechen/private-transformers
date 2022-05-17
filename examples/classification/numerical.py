@@ -5,6 +5,7 @@ Currently, only contains simultaneous iter.
 """
 import gc
 import logging
+import sys
 from typing import Optional
 
 import fire
@@ -47,7 +48,7 @@ def _mem_saving_matmul(mat1, mat2, gpu):
         section_out = []
         for idx in range(m):
             section_out.append(
-                (mat @ mat2[:, idx].to(gpu)).cpu()
+                torch.mm(mat, mat2[:, idx:idx + 1].to(gpu)).squeeze().cpu()
             )
         out.append(
             torch.stack(section_out, dim=1)
@@ -61,7 +62,7 @@ def _mem_saving_matmul(mat1, mat2, gpu):
 
 
 def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, disable_tqdm=False, verbose=True,
-              gpu=None, dump_dir=None):
+              gpu=None, dump_dir=None, stop_ratio=.999):
     """Simultaneous iteration for finding eigenvectors with the largest eigenvalues in absolute value.
 
     The method is aka subspace iteration or orthogonal iteration.
@@ -75,6 +76,8 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
         verbose: If True, log the error of QR.
         gpu: torch.device; defaults to CPU if None.
         dump_dir: Directory to dump the sequence of results.
+        stop_ratio: Stop power iteration and return early when
+            err_abs > stop_ratio * prev_err_abs.
 
     Returns:
         eigenvectors: Tensor of selected basis of size (p, k).
@@ -89,6 +92,7 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
     n, p = data.size()
     k = min(k, p, n)
     Q = torch.randn(size=(p, k))
+    prev_err_abs = sys.maxsize
 
     for global_step in tqdm.tqdm(range(num_power_iteration), desc="power iter", disable=disable_tqdm):
         if save_mem:
@@ -104,8 +108,8 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
             [_rayleigh_quotient(mat=data.to(gpu), vec=q.to(gpu)) for q in eigenvectors.T],
         ).cpu()
 
-        # TODO: stop when the reconstruction error is stable.
         err_abs, err_rel = _check_qr_error(data=data, Q=Q, save_mem=save_mem, disable_tqdm=disable_tqdm, gpu=gpu)
+        logging.warning(f"abs error: {err_abs:.6f}, rel error: {err_rel:.6f}")
 
         if dump_dir is not None:
             utils.makedirs(dump_dir, exist_ok=True)
@@ -115,7 +119,10 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
                 dump_path,
             )
 
-            logging.warning(f"abs error: {err_abs:.6f}, rel error: {err_rel:.6f}")
+        if err_abs > stop_ratio * prev_err_abs:
+            logging.warning("Reached breaking condition...")
+            break
+        prev_err_abs = err_abs
 
     return eigenvectors, eigenvalues  # noqa
 
