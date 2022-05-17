@@ -203,7 +203,7 @@ def _check_qr_error(data: torch.Tensor, Q: torch.Tensor, save_mem: bool, disable
     return err_abs.item(), err_rel.item()
 
 
-def _orthogonalize(matrix, gpu, disable_tqdm: bool):
+def _orthogonalize(matrix, gpu, disable_tqdm: bool, batch_size=100):
     """Gram-Schmidt.
 
     By far the slowest step, since cannot be parallelized.
@@ -212,14 +212,30 @@ def _orthogonalize(matrix, gpu, disable_tqdm: bool):
     matrix = matrix.to(gpu)
     for i in tqdm.tqdm(range(m), desc="orthogonalize", disable=disable_tqdm):
         # Normalize the ith column.
-        col = matrix[:, i: i + 1]
+        col = matrix[:, i: i + 1]  # (p, 1).
         col /= col.norm(2)
         # Remove contribution of this component for remaining columns.
         if i + 1 < m:
-            rest = matrix[:, i + 1:]
-            rest -= torch.sum(col * rest, dim=0) * col
+            rest = matrix[:, i + 1:]  # (p, r).
+            r = rest.size(1)
 
-    return matrix.cpu()
+            start_idx = 0
+            while start_idx < r:
+                batch = rest[:, start_idx:start_idx + batch_size]
+                batch -= torch.mm(batch.T, col).squeeze() * col
+                start_idx += batch_size
+
+            # rest -= torch.sum(col * rest, dim=0) * col
+            # rest -= torch.mm(rest.T, col).squeeze() * col
+
+        gc.collect()
+        torch.cuda.empty_cache()
+
+    matrix = matrix.cpu()
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    return matrix
 
 
 # def test_qr_decomposition(p=100000, k=100):
