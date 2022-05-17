@@ -45,7 +45,7 @@ def plot2(
         img_path=img_path,
         suffixes=('.png', '.pdf'),
         errorbars=errorbars,
-        options=dict(xlabel="step", ylabel="SST-2 classification accuracy (dev)")
+        options=dict(xlabel="iteration", ylabel="SST-2 classification accuracy (dev)")
     )
 
 
