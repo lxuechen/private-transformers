@@ -1,5 +1,7 @@
 """
-mean estimation with decaying importance.
+Toy example on geometric median estimation in the paper.
+
+CUDA_VISIBLE_DEVICES=3 python geometric_median.py --img_dir "/mnt/disks/disk-2/dump/spectrum/geometric_median"
 """
 import dataclasses
 import logging
@@ -170,9 +172,10 @@ def make_per_step_privacy_spending(
 def main(
     img_dir=None, eval_steps=10000, weight_decay=0, epsilon=2, delta=1e-6,
     n_train=10000, n_test=10000, dmin=1, mu_beta=1., si_beta=1, g0=3.,
-    verbose=False, quick=False,
     seeds=(42, 96, 10000, 999, 101),  # Some arbitrary numbers.
-    modes=(Modes.const, Modes.sqrt, Modes.linear),
+    modes=(Modes.const, Modes.sqrt, Modes.linear),  # A subset of all possible modes for visualization.
+    verbose=False,
+    quick=False,  # Use small data if True.
 ):
     if quick:
         dims = (10, 50,)
@@ -274,5 +277,4 @@ def main(
 
 
 if __name__ == "__main__":
-    # CUDA_VISIBLE_DEVICES=3 python decay_mean.py --img_dir "/mnt/disks/disk-2/dump/spectrum/toy6"
     fire.Fire(main)
