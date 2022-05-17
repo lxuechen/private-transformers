@@ -226,11 +226,21 @@ def test_qr_decomposition(p=100000, k=100):
     print('.')
 
 
+def test_mem_saving_matmul():
+    torch.set_default_dtype(torch.float64)
+    mat1, mat2 = torch.randn(50, 1000), torch.randn(1000, 100)
+    mat1, mat2 = mat1.to(device), mat2.to(device)
+    mm1 = _mem_saving_matmul(mat1, mat2, gpu=device, disable_tqdm=True).to(device)
+    mm2 = mat1.matmul(mat2)
+    torch.testing.assert_allclose(mm1, mm2)
+    print('.')
+
+
 def main(task="qr", **kwargs):
     utils.runs_tasks(
         task=task,
-        task_names=("qr", "test_qr_decomposition"),
-        task_callables=(qr, test_qr_decomposition),
+        task_names=("qr", "test_qr_decomposition", "test_mem_saving_matmul"),
+        task_callables=(qr, test_qr_decomposition, test_mem_saving_matmul),
         **kwargs,
     )
 
@@ -238,4 +248,5 @@ def main(task="qr", **kwargs):
 if __name__ == "__main__":
     # python -m classification.numerical --task "qr"
     # CUDA_VISIBLE_DEVICES=3 python -m classification.numerical --task "test_qr_decomposition"
+    # CUDA_VISIBLE_DEVICES=3 python -m classification.numerical --task "test_mem_saving_matmul"
     fire.Fire(main)
