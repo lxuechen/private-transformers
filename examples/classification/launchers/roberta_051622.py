@@ -1,6 +1,3 @@
-"""
-"""
-
 import fire
 from swissknife import utils
 
@@ -46,7 +43,7 @@ def dump_grads_prompt():
     utils.gpu_scheduler(commands=[cmd])
 
 
-# CUDA_VISIBLE_DEVICES=3 python -m classification.launchers.roberta_051622 --task get_bases
+# python -m classification.launchers.roberta_051622 --task get_bases
 def get_bases():
     """Perform PCA for grad near local optimum."""
     # TODO: Get this to 2k.
@@ -60,13 +57,27 @@ def get_bases():
     utils.gpu_scheduler(commands=[cmd])
 
 
+# python -m classification.launchers.roberta_051622 --task get_bases_prompt
+def get_bases_prompt():
+    """Perform PCA for grad near local optimum."""
+    # TODO: Get this to 2k.
+    cmd = '''python -m classification.numerical --task "qr"\
+        --grads_dir "/mnt/disks/disk-2/dump/privlm/roberta_prompt/sst-2/grad_trajectory" \
+        --dump_dir "/mnt/disks/disk-2/dump/privlm/roberta_prompt/sst-2/orthproj" \
+        --num_ckpts 1000 \
+        --varname "flat_grad" \
+        --num_power_iteration 500 \
+        --k 1000'''
+    utils.gpu_scheduler(commands=[cmd])
+
+
 def main(
     task='dump_grads',
 ):
     utils.runs_tasks(
         task=task,
-        task_names=("dump_grads", "dump_grads_prompt", "get_bases"),
-        task_callables=(dump_grads, dump_grads_prompt, get_bases)
+        task_names=("dump_grads", "dump_grads_prompt", "get_bases", "get_bases_prompt"),
+        task_callables=(dump_grads, dump_grads_prompt, get_bases, get_bases_prompt)
     )
 
 
