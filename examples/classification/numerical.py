@@ -51,14 +51,22 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
         disable_tqdm: If True, disable progress bar.
         verbose: If True, log the error of QR.
         gpu: torch.device; defaults to CPU if None.
+        dump_dir: Directory to dump the sequence of results.
 
     Returns:
         eigenvectors: Tensor of selected basis of size (p, k).
         eigenvalues: Tensor of eigenvalues of data.T @ data of size (k,).
     """
+
+    def _rayleigh_quotient(mat: torch.Tensor, vec: torch.Tensor):
+        """Compute v^t A^t A v / v^t v."""
+        mvp = torch.matmul(mat, vec)
+        return (mvp * mvp).sum() / (vec * vec).sum()
+
     n, p = data.size()
     k = min(k, p, n)
     Q = torch.randn(size=(p, k))
+
     for global_step in tqdm.tqdm(range(num_power_iteration), desc="power iter", disable=disable_tqdm):
         if save_mem:
             data = data.to(gpu, non_blocking=True)
@@ -83,29 +91,24 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
             Q = torch.matmul(data.T, R)  # pn, nk -> pk.
             Q = _orthogonalize(matrix=Q, disable_tqdm=disable_tqdm)  # pk; orthonormalize the columns.
 
+        eigenvectors = Q
+        eigenvalues = torch.stack(
+            [_rayleigh_quotient(mat=data.to(gpu), vec=q.to(gpu)) for q in eigenvectors.T],
+        ).cpu()
+
         if dump_dir is not None:
             err_abs, err_rel = _check_qr_error(data=data, Q=Q, save_mem=save_mem, disable_tqdm=disable_tqdm, gpu=gpu)
 
             utils.makedirs(dump_dir, exist_ok=True)
             dump_path = utils.join(dump_dir, f"global_step_{global_step:06d}.pt")
             torch.save(
-                dict(Q=Q, err_abs=err_abs, err_rel=err_rel),
+                dict(eigenvalues=eigenvalues, eigenvectors=eigenvectors, err_abs=err_abs, err_rel=err_rel),
                 dump_path,
             )
 
-            if verbose:
-                logging.warning(f"abs error: {err_abs:.6f}, rel error: {err_rel:.6f}")
+            logging.warning(f"abs error: {err_abs:.6f}, rel error: {err_rel:.6f}")
 
-    def _rayleigh_quotient(mat: torch.Tensor, vec: torch.Tensor):
-        """Compute v^t A^t A v / v^t v."""
-        mvp = torch.matmul(mat, vec)
-        return (mvp * mvp).sum() / (vec * vec).sum()
-
-    eigenvectors = Q
-    eigenvalues = torch.stack(
-        [_rayleigh_quotient(mat=data.to(gpu), vec=q.to(gpu)) for q in eigenvectors.T],
-    )
-    return eigenvectors, eigenvalues
+    return eigenvectors, eigenvalues  # noqa
 
 
 def _orthogonalize(matrix, disable_tqdm: bool):
