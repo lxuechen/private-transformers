@@ -26,13 +26,25 @@ def dump_grads():
     utils.gpu_scheduler(commands=[cmd])
 
 
+def get_bases():
+    """Perform PCA for grad near local optimum."""
+    cmd = '''python -m classification.numerical --task "qr"\
+        --grads_dir "/mnt/disks/disk-2/dump/privlm/roberta/sst-2/grad_trajectory" \
+        --dump_dir "/mnt/disks/disk-2/dump/privlm/roberta/sst-2/orthproj" \
+        --num_ckpts 2000 \
+        --varname "flat_grad" \
+        --num_power_iteration 100 \
+        --k 2000'''
+    utils.gpu_scheduler(commands=[cmd])
+
+
 def main(
     task='dump_grads',
 ):
     utils.runs_tasks(
         task=task,
-        task_names=["dump_grads"],
-        task_callables=[dump_grads, ]
+        task_names=("dump_grads", "get_bases"),
+        task_callables=(dump_grads, get_bases)
     )
 
 

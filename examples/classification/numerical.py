@@ -26,15 +26,15 @@ def load_data(dir_, num_ckpts, varname):
 
 
 def qr(
-    grads_dir="/mnt/disks/disk-2/dump/classification/test/grad_trajectory",
-    dump_dir="/mnt/disks/disk-2/dump/classification/test/orthproj",
-    num_ckpts=1000,
+    grads_dir="/mnt/disks/disk-2/dump/privlm/roberta/sst-2/grad_trajectory",
+    dump_dir="/mnt/disks/disk-2/dump/privlm/roberta/sst-2/orthproj",
+    num_ckpts=2000,
     varname="flat_grad",
-    num_power_iteration=1,
-    k=1000,
+    num_power_iteration=100,
+    k=2000,
 ):
     data = load_data(dir_=grads_dir, num_ckpts=num_ckpts, varname=varname)
-    Q = get_bases(data=data, k=k, num_power_iteration=num_power_iteration, gpu=device, dump_dir=dump_dir)
+    get_bases(data=data, k=k, num_power_iteration=num_power_iteration, gpu=device, dump_dir=dump_dir)
 
 
 def _mem_saving_matmul(mat1, mat2, gpu):
