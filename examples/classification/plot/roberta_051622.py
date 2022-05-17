@@ -23,7 +23,7 @@ def plot1(
 
 # python -m classification.plot.roberta_051622 --task plot2
 def plot2(
-    seeds=(42,),
+    seeds=(42, 101, 20598, 90828, 9008),
     ranks=(10, 20, 50, 100, None),
     base_dir="/Users/xuechenli/Desktop/dump_a100/privlm",
     dump_dir="./classification/plot",
@@ -37,13 +37,11 @@ def plot2(
         results = []
         for seed in seeds:
             output_dir = utils.join(
-                f"{base_dir}/roberta_retrain_{rank}_{seed}/sst-2",
+                f"{base_dir}/roberta_prompt_retrain_{rank}_{seed}/sst-2",
                 'log_history.json'
             )
             record = utils.jload(output_dir)
             results.append([dumpi['dev']['eval_acc'] for dumpi in record])
-            if rank == 100:
-                print(results)
             steps = [dumpi['step'] for dumpi in record]
 
         label = f"subspace rank={rank}" if rank is not None else "original"
