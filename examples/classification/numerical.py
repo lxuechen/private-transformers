@@ -94,8 +94,6 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
     Q = torch.randn(size=(p, k))
     prev_err_abs = sys.maxsize
 
-    Q = _msg(matrix=Q, gpu=gpu, disable_tqdm=disable_tqdm)  # pk; orthonormalize the columns.
-
     for global_step in tqdm.tqdm(range(num_power_iteration), desc="power iter", disable=disable_tqdm):
         if save_mem:
             R = _mem_saving_matmul(mat1=data, mat2=Q, gpu=gpu)
@@ -142,8 +140,8 @@ def _orthogonalize(matrix, gpu, disable_tqdm: bool):
         col /= col.norm(2)
         # Remove contribution of this component for remaining columns.
         if i + 1 < m:
-            rest = matrix[:, i + 1:]
-            rest -= torch.sum(col * rest, dim=0) * col
+            rest = matrix[:, i + 1:]  # (p, r).
+            rest -= torch.mm(rest, torch.mm(rest.T, col))
     matrix = matrix.cpu()
     gc.collect()
     torch.cuda.empty_cache()
@@ -214,15 +212,25 @@ def _check_qr_error(data: torch.Tensor, Q: torch.Tensor, save_mem: bool, disable
     return err_abs.item(), err_rel.item()
 
 
+def test_qr_decomposition(p=100000, k=100):
+    torch.set_default_dtype(torch.float16)
+    Q = torch.randn(p, k, device=device) * 3
+    P1 = _orthogonalize(Q, gpu=device, disable_tqdm=True)
+    P2 = _msg(Q, gpu=device, disable_tqdm=True)
+    torch.testing.assert_allclose(P1, P2)
+    print('.')
+
+
 def main(task="qr", **kwargs):
     utils.runs_tasks(
         task=task,
-        task_names=("qr",),
-        task_callables=(qr,),
+        task_names=("qr", "test_qr_decomposition"),
+        task_callables=(qr, test_qr_decomposition),
         **kwargs,
     )
 
 
 if __name__ == "__main__":
     # python -m classification.numerical --task "qr"
+    # CUDA_VISIBLE_DEVICES=3 python -m classification.numerical --task "test_qr_decomposition"
     fire.Fire(main)
