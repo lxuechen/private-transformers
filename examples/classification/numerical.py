@@ -62,7 +62,7 @@ def _mem_saving_matmul(mat1, mat2, gpu):
 
 
 def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, disable_tqdm=False, verbose=True,
-              gpu=None, dump_dir=None, stop_ratio=.999):
+              gpu=None, dump_dir=None, stop_ratio=.999, dtype="float"):
     """Simultaneous iteration for finding eigenvectors with the largest eigenvalues in absolute value.
 
     The method is aka subspace iteration or orthogonal iteration.
@@ -94,6 +94,8 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
     Q = torch.randn(size=(p, k))
     prev_err_abs = sys.maxsize
 
+    Q = _msg(matrix=Q, gpu=gpu, disable_tqdm=disable_tqdm)  # pk; orthonormalize the columns.
+
     for global_step in tqdm.tqdm(range(num_power_iteration), desc="power iter", disable=disable_tqdm):
         if save_mem:
             R = _mem_saving_matmul(mat1=data, mat2=Q, gpu=gpu)
@@ -101,7 +103,7 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
         else:
             R = torch.matmul(data, Q)  # np, pk -> nk.
             Q = torch.matmul(data.T, R)  # pn, nk -> pk.
-        Q = _orthogonalize(matrix=Q, gpu=gpu, disable_tqdm=disable_tqdm)  # pk; orthonormalize the columns.
+        Q = _msg(matrix=Q, gpu=gpu, disable_tqdm=disable_tqdm)  # pk; orthonormalize the columns.
 
         eigenvectors = Q
         eigenvalues = torch.stack(
@@ -142,6 +144,27 @@ def _orthogonalize(matrix, gpu, disable_tqdm: bool):
         if i + 1 < m:
             rest = matrix[:, i + 1:]
             rest -= torch.sum(col * rest, dim=0) * col
+    matrix = matrix.cpu()
+    gc.collect()
+    torch.cuda.empty_cache()
+    return matrix
+
+
+def _msg(matrix, gpu, disable_tqdm: bool):
+    """Modified Gram-Schmidt.
+
+    Much more numerically stable.
+    """
+    n, m = matrix.size()
+    matrix = matrix.to(gpu)
+
+    for i in tqdm.tqdm(range(m), desc="orthogonalize", disable=disable_tqdm):
+        qi = matrix[:, i: i + 1]  # (p, 1).
+        if i > 0:
+            prev = matrix[:, :i]  # (p, r).
+            qi -= torch.mm(prev, torch.mm(prev.T, qi))
+        qi /= qi.norm(2)
+
     matrix = matrix.cpu()
     gc.collect()
     torch.cuda.empty_cache()
