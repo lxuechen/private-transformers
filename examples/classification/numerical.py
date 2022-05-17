@@ -196,7 +196,7 @@ def _check_qr_error(data: torch.Tensor, Q: torch.Tensor, save_mem: bool, disable
 
         new_data = _mem_saving_matmul(
             mat1=Q, mat2=data_mul_Q.T, gpu=gpu, disable_tqdm=disable_tqdm, tag="check qr:: decode"
-        )
+        ).T  # (n, p).
 
         a_chunks = torch.chunk(data, chunks=chunks, dim=0)
         b_chunks = torch.chunk(new_data, chunks=chunks, dim=0)
