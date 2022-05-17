@@ -24,16 +24,17 @@ def plot1(
 # python -m classification.plot.roberta_051622 --task plot2
 def plot2(
     seeds=(42, 101, 20598, 90828, 9008),
-    ranks=(10, 20, 50, 100, None),
+    ranks=(10, 20, 100, None),
     base_dir="/Users/xuechenli/Desktop/dump_a100/privlm",
     dump_dir="./classification/plot",
+    markers=('x', '^', '+', 'o'),
 ):
     """Retrain.
 
     Run locally.
     """
     errorbars = []
-    for rank in ranks:
+    for rank, marker in utils.zip_(ranks, markers):
         results = []
         for seed in seeds:
             output_dir = utils.join(
@@ -46,7 +47,7 @@ def plot2(
 
         label = f"subspace rank={rank}" if rank is not None else "original"
         mu, si = utils.average_over_seed(results)
-        errorbar = dict(x=steps, y=mu, yerr=si, label=label, marker='x')
+        errorbar = dict(x=steps, y=mu, yerr=si, label=label, marker=marker)
         errorbars.append(errorbar)
 
     img_path = utils.join(dump_dir, 'plot2')
