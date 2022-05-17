@@ -187,13 +187,16 @@ def _check_qr_error(data: torch.Tensor, Q: torch.Tensor, save_mem: bool, disable
         a_chunks = torch.chunk(data, chunks=chunks, dim=0)
         b_chunks = torch.chunk(new_data, chunks=chunks, dim=0)
         err_abs = []
+        ref_abs = []
         for ai, bi in tqdm.tqdm(utils.zip_(a_chunks, b_chunks), desc="check qr::error chunks", total=chunks):
             ai, bi = ai.to(gpu), bi.to(gpu)
             err_abs.append(
-                (ai - bi).norm(2) ** 2
+                (ai - bi).norm(2) ** 2.
             )
+            ref_abs.append(ai.norm(2) ** 2.)
+        ref_abs = torch.stack(ref_abs).sum().sqrt()
         err_abs = torch.stack(err_abs).sum().sqrt()
-        err_rel = err_abs / data.to(gpu).norm(2)
+        err_rel = err_abs / ref_abs
     else:
         recon = data @ Q @ Q.T  # np.
 
@@ -208,6 +211,7 @@ def _orthogonalize(matrix, gpu, disable_tqdm: bool, batch_size=100):
 
     By far the slowest step, since cannot be parallelized.
     """
+    # TODO: Refactor this part to use less mem.
     n, m = matrix.size()
     matrix = matrix.to(gpu)
     for i in tqdm.tqdm(range(m), desc="orthogonalize", disable=disable_tqdm):
@@ -222,7 +226,8 @@ def _orthogonalize(matrix, gpu, disable_tqdm: bool, batch_size=100):
             start_idx = 0
             while start_idx < r:
                 batch = rest[:, start_idx:start_idx + batch_size]
-                # TODO: Broadcast, pointwise multiply, and then reduce seems to suffer from less imprecision.
+                # TODO: Broadcast, pointwise multiply, and then reduce seems to
+                #   suffer from less imprecision than direct matmul or mm.
                 batch -= torch.sum(col * batch, dim=0) * col
                 start_idx += batch_size
 
