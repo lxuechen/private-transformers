@@ -135,9 +135,12 @@ def retrain_prompt(seeds=(42, 9008,), run=True):
         utils.gpu_scheduler(commands=cmds)
     return cmds
 
+
 # python -m classification.launchers.roberta_051622 --task retrain_all
 def retrain_all():
-    cmds = retrain(run=False) + retrain_prompt(run=False)
+    # TODO: 9008 is a bad seed.
+    seeds = (101, 20598, 90828, 198)
+    cmds = retrain(run=False, seeds=seeds) + retrain_prompt(run=False, seeds=seeds)
     utils.gpu_scheduler(commands=cmds)
 
 
