@@ -82,6 +82,7 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
         dump_dir: Directory to dump the sequence of results.
         stop_ratio: Stop power iteration and return early when
             err_abs > stop_ratio * prev_err_abs.
+        dtype: Precision in string format.
 
     Returns:
         eigenvectors: Tensor of selected basis of size (p, k).
@@ -93,9 +94,11 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
         mvp = torch.matmul(mat, vec)
         return (mvp * mvp).sum() / (vec * vec).sum()
 
+    dtype = utils.get_dtype(dtype)
+    data = data.to(dtype)
     n, p = data.size()
     k = min(k, p, n)
-    Q = torch.randn(size=(p, k))
+    Q = torch.randn(size=(p, k), dtype=dtype)
     prev_err_abs = sys.maxsize
 
     for global_step in tqdm.tqdm(range(num_power_iteration), desc="power iter", disable=disable_tqdm):
@@ -174,39 +177,29 @@ def _msg(matrix, gpu, disable_tqdm: bool):
 
 
 def _check_qr_error(data: torch.Tensor, Q: torch.Tensor, save_mem: bool, disable_tqdm: bool,
-                    gpu: Optional[torch.device]):
+                    gpu: Optional[torch.device], chunks=2):
     n, p = data.size()
     _, k = Q.size()
 
     if save_mem:
-        data = data.to(gpu, non_blocking=True)
-        data_norm = data.norm(2).item()
+        data_mul_Q = _mem_saving_matmul(
+            mat1=data, mat2=Q, gpu=gpu, disable_tqdm=disable_tqdm, tag="check qr:: encode"
+        )  # (n, k).
 
-        iterator = tqdm.tqdm(range(k), desc="check qr:: encode", disable=disable_tqdm)
-        data_mul_Q = torch.cat(
-            [data.matmul(Q[:, idx][:, None].to(gpu, non_blocking=True)) for idx in iterator],
-            dim=1
-        )  # nk.
-
-        data = data.cpu()
-        data_mul_Q = data_mul_Q.cpu()
-        gc.collect()
-        torch.cuda.empty_cache()
-        Q = Q.to(gpu, non_blocking=True)
-
-        iterator = tqdm.tqdm(range(n), desc="check qr:: decode", disable=disable_tqdm)
-
-        err_abs = torch.sqrt(
-            sum(
-                [
-                    (Q.matmul(data_mul_Q.T[:, idx:idx + 1].to(gpu, non_blocking=True)).squeeze() -
-                     data[idx].to(gpu, non_blocking=True)).norm(2) ** 2.
-                    for idx in iterator
-                ]
-            )
+        new_data = _mem_saving_matmul(
+            mat1=Q, mat2=data_mul_Q.T, gpu=gpu, disable_tqdm=disable_tqdm, tag="check qr:: decode"
         )
-        err_rel = err_abs / data_norm
 
+        a_chunks = torch.chunk(data, chunks=chunks, dim=0)
+        b_chunks = torch.chunk(new_data, chunks=chunks, dim=0)
+        err_abs = []
+        for ai, bi in tqdm.tqdm(utils.zip_(a_chunks, b_chunks), desc="check qr error chunks", total=chunks):
+            ai, bi = ai.to(gpu), bi.to(gpu)
+            err_abs.append(
+                (ai - bi).norm(2) ** 2
+            )
+        err_abs = torch.stack(err_abs).sum().sqrt().item()
+        err_rel = err_abs / data.to(gpu).norm(2).item()
     else:
         recon = data @ Q @ Q.T  # np.
 
