@@ -3,22 +3,47 @@ Plot 1) spectral decay, 2) retrain curves.
 """
 
 import fire
-
+import numpy as np
+import scipy.stats
 from swissknife import utils
 import torch
 
 
 # python -m classification.plot.roberta_051622 --task plot1
 def plot1(
-    ckpt_path=f"/mnt/disks/disk-2/dump/privlm/roberta/sst-2/orthproj/global_step_000002.pt"
+    dump_dir="./classification/plot",
+    ckpt_path=f"/Users/xuechenli/Desktop/dump_a100/privlm/roberta_prompt/sst-2/eigenvalues.pt-small",
+    k=500,
 ):
     """Eigenvalues.
 
     Run on gvm.
     """
-    ckpt = torch.load(ckpt_path)
-    eigenvalues = ckpt["eigenvalues"]
-    print(eigenvalues.size())
+    state_dicts = torch.load(ckpt_path)
+    eigenvalues = state_dicts["eigenvalues"]
+
+    x = np.arange(1, k + 1)
+    g = np.sqrt(eigenvalues[:k])
+    logg = np.log(g)
+    logx = np.log(x)
+
+    linfit = scipy.stats.linregress(logx, logg)
+    g_linfit = np.exp(logx * linfit.slope + linfit.intercept)
+
+    print("slope:", linfit.slope)
+    print("R value:", linfit.rvalue)
+
+    plots = [
+        dict(x=x, y=g, marker='+', linewidth=0),
+        dict(x=x, y=g_linfit,
+             label=f"linear fit: $\log y = {linfit.slope:.2f} \log x {linfit.intercept:.2f} $ ($R^2={linfit.rvalue ** 2.:.3f}$)")
+    ]
+    utils.plot_wrapper(
+        img_path=utils.join(dump_dir, "eigenvalue-linfit"),
+        suffixes=(".png", ".pdf"),
+        plots=plots,
+        options=dict(xlabel="$k$", ylabel="$\lambda(H^\\top H)^{1/2}$", xscale='log', yscale='log')
+    )
 
 
 # python -m classification.plot.roberta_051622 --task plot2
