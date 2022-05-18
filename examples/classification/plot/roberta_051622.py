@@ -2,12 +2,16 @@
 Plot 1) spectral decay, 2) retrain curves.
 """
 
+import math
+
 import fire
 import numpy as np
 import scipy.stats
 from swissknife import utils
 import torch
+
 from ..spectrum import density
+
 
 # python -m classification.plot.roberta_051622 --task plot1
 def plot1(
@@ -37,7 +41,8 @@ def plot1(
     plots = [
         dict(x=x, y=g, marker='+', linewidth=0),
         dict(x=x, y=g_linfit,
-             label=f"linear fit: $\log y = {linfit.slope:.2f} \log x {linfit.intercept:.2f} $ ($R^2={linfit.rvalue ** 2.:.3f}$)")
+             label=f"linear fit: $\log y = {linfit.slope:.2f} \log x {linfit.intercept:.2f} $ ($R^2="
+                   f"{linfit.rvalue ** 2.:.3f}$)")
     ]
     utils.plot_wrapper(
         img_path=utils.join(dump_dir, "eigenvalue-linfit"),
@@ -47,13 +52,14 @@ def plot1(
     )
 
     # Spectral density.
+    sigma_squared = 1e-5
     evals = np.sqrt(eigenvalues[None, :k])
-    den, gri = density.eigv_to_density(evals, sigma_squared=3e-6, grid_len=300000, grid_expand=5e-2)
+    den, gri = density.eigv_to_density(evals, sigma_squared=sigma_squared, grid_len=300000, grid_expand=5e-2)
     utils.plot_wrapper(
         img_path=utils.join(dump_dir, 'eigenvalue-density'),
         suffixes=(".png", ".pdf"),
-        plots=[dict(x=gri, y=den)],
-        options=dict(xlabel="$\lambda(H^\\top H)^{1/2}$", ylabel="Density of KDE fit",
+        plots=[dict(x=gri, y=den, label=f"bandwidth $\sigma={math.sqrt(sigma_squared):.5f}$")],
+        options=dict(xlabel="$\lambda(H^\\top H)^{1/2}$", ylabel="Density of KDE",
                      ylim=dict(bottom=1e-10, top=2e2),
                      xscale="linear", yscale='log')
     )
