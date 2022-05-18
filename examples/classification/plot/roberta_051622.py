@@ -7,7 +7,7 @@ import numpy as np
 import scipy.stats
 from swissknife import utils
 import torch
-
+from ..spectrum import density
 
 # python -m classification.plot.roberta_051622 --task plot1
 def plot1(
@@ -22,6 +22,7 @@ def plot1(
     state_dicts = torch.load(ckpt_path)
     eigenvalues = state_dicts["eigenvalues"]
 
+    # Linear fit.
     x = np.arange(1, k + 1)
     g = np.sqrt(eigenvalues[:k])
     logg = np.log(g)
@@ -43,6 +44,18 @@ def plot1(
         suffixes=(".png", ".pdf"),
         plots=plots,
         options=dict(xlabel="$k$", ylabel="$\lambda(H^\\top H)^{1/2}$", xscale='log', yscale='log')
+    )
+
+    # Spectral density.
+    evals = np.sqrt(eigenvalues[None, :k])
+    den, gri = density.eigv_to_density(evals, sigma_squared=3e-6, grid_len=300000, grid_expand=5e-2)
+    utils.plot_wrapper(
+        img_path=utils.join(dump_dir, 'eigenvalue-density'),
+        suffixes=(".png", ".pdf"),
+        plots=[dict(x=gri, y=den)],
+        options=dict(xlabel="$\lambda(H^\\top H)^{1/2}$", ylabel="Density of KDE fit",
+                     ylim=dict(bottom=1e-10, top=2e2),
+                     xscale="linear", yscale='log')
     )
 
 
