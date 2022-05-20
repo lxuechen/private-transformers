@@ -17,7 +17,7 @@ from ..spectrum import density
 def plot1(
     dump_dir="./classification/plot",
     ckpt_path=f"/Users/xuechenli/Desktop/dump_a100/privlm/roberta_prompt/sst-2/eigenvalues.pt-small",
-    k=500,
+    k=1000,
 ):
     """Eigenvalues.
 
@@ -39,10 +39,10 @@ def plot1(
     print("R value:", linfit.rvalue)
 
     plots = [
-        dict(x=x, y=g, marker='+', linewidth=0),
+        dict(x=x, y=g, marker='+', linewidth=0, label="estimated values", markersize=8, alpha=0.8),
         dict(x=x, y=g_linfit,
              label=f"linear fit: $\log y = {linfit.slope:.2f} \log x {linfit.intercept:.2f} $ ($R^2="
-                   f"{linfit.rvalue ** 2.:.3f}$)")
+                   f"{linfit.rvalue ** 2.:.3f}$)"),
     ]
     utils.plot_wrapper(
         img_path=utils.join(dump_dir, "eigenvalue-linfit"),
@@ -52,16 +52,16 @@ def plot1(
     )
 
     # Spectral density.
-    sigma_squared = 1e-5
+    sigma_squared = 1e-6
     evals = np.sqrt(eigenvalues[None, :k])
-    den, gri = density.eigv_to_density(evals, sigma_squared=sigma_squared, grid_len=300000, grid_expand=5e-2)
+    den, gri = density.eigv_to_density(evals, sigma_squared=sigma_squared, grid_len=300000, grid_expand=3e-4)
     utils.plot_wrapper(
         img_path=utils.join(dump_dir, 'eigenvalue-density'),
         suffixes=(".png", ".pdf"),
         plots=[dict(x=gri, y=den, label=f"bandwidth $\sigma={math.sqrt(sigma_squared):.5f}$")],
         options=dict(xlabel="$\lambda(H^\\top H)^{1/2}$", ylabel="Density of KDE",
                      ylim=dict(bottom=1e-10, top=2e2),
-                     xscale="linear", yscale='log')
+                     xscale="log", yscale='log')
     )
 
 
