@@ -1,3 +1,5 @@
+import os
+
 import fire
 
 
@@ -38,7 +40,10 @@ def _get_cmd(
 
 
 def main(**kwargs):
-    return _get_cmd(**kwargs)
+    command = _get_cmd(**kwargs)
+    print('Running command:')
+    print(command)
+    os.system(command)
 
 
 if __name__ == "__main__":
