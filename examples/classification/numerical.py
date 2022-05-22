@@ -32,7 +32,7 @@ def load_data(ckpts_dir, num_ckpts, batch_size):
     return loader
 
 
-def qr(
+def pca(
     grads_dir="/mnt/disks/disk-2/dump/privlm/roberta/sst-2/grad_trajectory",
     dump_dir="/mnt/disks/disk-2/dump/privlm/roberta/sst-2/orthproj",
     n=2000,
@@ -40,9 +40,6 @@ def qr(
     num_power_iteration=100,
     batch_size=200,
 ):
-    logging.warning(f"grads_dir: {grads_dir}")
-    logging.warning(f"dump_dir: {dump_dir}")
-
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     loader = load_data(ckpts_dir=grads_dir, num_ckpts=n, batch_size=batch_size)
     get_bases(
@@ -116,9 +113,9 @@ def _check_error(
         for idx in range(nsteps):
             start_idx = int(idx * chunk_size)
             chunk = eigenvectors[:, start_idx: start_idx + chunk_size].to(device)
-            batch_rec += torch.mm(chunk, torch.mm(chunk.T, batch.T))
+            batch_rec += torch.mm(chunk, torch.mm(chunk.T, batch.T)).T
 
-        err_abs.append((batch - batch_rec.T).norm(2))
+        err_abs.append((batch - batch_rec).norm(2))
         ref_abs.append(batch.norm(2))
 
     ref_abs = torch.stack(ref_abs).norm(2)
@@ -150,9 +147,13 @@ def _orthogonalize(matrix, device, disable_tqdm: bool, chunk_size: int = 100):
 
 def get_bases(
     loader: DataLoader,
-    k: int, num_power_iteration=1,
-    disable_tqdm=False, verbose=True,
-    device=None, dump_dir=None, stop_ratio=.9999, dtype=torch.float,
+    k: int,
+    num_power_iteration=1,
+    disable_tqdm=False,
+    stop_ratio=.9999,
+    dtype=torch.float,
+    device=None,
+    dump_dir=None,
     chunk_size=100,
 ):
     """Simultaneous iteration for finding eigenvectors with the largest eigenvalues in absolute value.
@@ -204,11 +205,13 @@ def get_bases(
         logging.warning(f"global_step: {global_step}, abs error: {err_abs:.6f}, rel error: {err_rel:.6f}")
 
         if dump_dir is not None:
-            utils.makedirs(dump_dir, exist_ok=True)
-            dump_path = utils.join(dump_dir, f"global_step_{global_step:06d}.pt")
-            torch.save(
+            utils.tsave(
                 dict(eigenvalues=eigenvalues, eigenvectors=eigenvectors, err_abs=err_abs, err_rel=err_rel),
-                dump_path,
+                utils.join(dump_dir, "all", f"global_step_{global_step:06d}.pt")
+            )
+            utils.tsave(
+                dict(eigenvalues=eigenvalues),
+                utils.join(dump_dir, "eigenvalues", f"global_step_{global_step:06d}.evals")
             )
 
         if err_abs > stop_ratio * prev_err_abs:
@@ -220,15 +223,15 @@ def get_bases(
 
 
 # TODO: Write an eigenvalue test.
-def main(task="qr", **kwargs):
+def main(task="pca", **kwargs):
     utils.runs_tasks(
         task=task,
-        task_names=("qr",),
-        task_callables=(qr,),
+        task_names=("pca",),
+        task_callables=(pca,),
         **kwargs,
     )
 
 
 if __name__ == "__main__":
-    # python -m classification.numerical --task "qr" --n 100 --k 100
+    # python -m classification.numerical --task "pca" --n 100 --k 100
     fire.Fire(main)
