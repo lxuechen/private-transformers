@@ -64,7 +64,8 @@ def retrain_prompt(seeds=(42, 9008, 0), run=True):
           --randomly_initialize "no" \
           --seed {seed}'''
             if rank is not None:
-                cmd += f' --orthogonal_projection_path "/mnt/disks/disk-2/dump/privlm/roberta2_prompt/sst-2/orthproj/global_step_000002.pt"'
+                cmd += f' --orthogonal_projection_path ' \
+                       f'"/mnt/disks/disk-2/dump/privlm/roberta2_prompt/sst-2/orthproj/global_step_000002.pt"'
                 cmd += f' --orthogonal_projection_rank {rank}'
             cmds.append(cmd)
 
@@ -81,8 +82,10 @@ def retrain_all():
 
 # python -m classification.launchers.roberta_052222 --task dump_and_pca
 def dump_and_pca():
-    cmds = [dump_grads_prompt(run=False)]
-    cmds.extend([get_bases_prompt(seed=seed, run=False) for seed in (42, 9009, 101)])
+    procs = utils.gpu_scheduler(commands=[dump_grads_prompt(run=False)])
+    for proc in procs:
+        proc.wait()  # Wait for training to finish, then run parallel seed.
+    cmds = [get_bases_prompt(seed=seed, run=False) for seed in (42, 9009, 101)]
     utils.gpu_scheduler(commands=cmds)
 
 

@@ -13,7 +13,7 @@ import torch
 from ..spectrum import density
 
 
-# python -m classification.plot.roberta_051622 --task plot1
+# python -m classification.plot2.roberta_051622 --task plot1
 def plot1(
     dump_dir="./classification/plot",
     ckpt_path=f"/Users/xuechenli/Desktop/dump_a100/privlm/roberta_prompt/sst-2/eigenvalues.pt-small",
@@ -65,7 +65,7 @@ def plot1(
     )
 
 
-# python -m classification.plot.roberta_051622 --task plot2
+# python -m classification.plot2.roberta_051622 --task plot2
 def plot2(
     seeds=(42, 101, 20598, 90828, 9008),
     ranks=(10, 20, 100, None),
@@ -103,7 +103,7 @@ def plot2(
     )
 
 
-# python -m classification.plot.roberta_051622 --task plot_all
+# python -m classification.plot2.roberta_051622 --task plot_all
 def plot_all():
     plot1()
     plot2()

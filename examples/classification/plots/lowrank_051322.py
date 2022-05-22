@@ -1,6 +1,3 @@
-"""
-"""
-
 import fire
 from swissknife import utils
 
