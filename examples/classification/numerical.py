@@ -5,7 +5,6 @@ Currently, only contains simultaneous iter.
 """
 import logging
 import math
-import sys
 from typing import Optional, Tuple
 
 import fire
@@ -152,28 +151,29 @@ def orthogonal_iteration(
     k: int,
     num_power_iteration=1,
     disable_tqdm=False,
-    stop_ratio=.9999,
     dtype=torch.float,
     device: Optional[torch.device] = None,
     dump_dir=None,
     chunk_size=100,
+    eval_steps=5,
 ):
     """Simultaneous iteration for finding eigenvectors with the largest eigenvalues in absolute value.
 
     The method is aka subspace iteration or orthogonal iteration.
+
+    WARNING:
+        - good reconstruction of the data does not imply converged eigenvalues!
 
     Args:
         loader: Dataloader to incrementally load in flat gradients.
         k: Number of principal components to return.
         num_power_iteration: Number of power iterations.
         disable_tqdm: If True, disable progress bar.
-        verbose: If True, log the error of QR.
         device: torch.device; defaults to CPU if None.
         dump_dir: Directory to dump the sequence of results.
-        stop_ratio: Stop power iteration and return early when
-            err_abs > stop_ratio * prev_err_abs.
         dtype: Precision in string format.
         chunk_size: Size of chunks for processing the dimension that loops over eigenvectors.
+        eval_steps: Number of steps before a data reconstruction evaluation.
 
     Returns:
         eigenvectors: Tensor of selected basis of size (p, k).
@@ -183,11 +183,15 @@ def orthogonal_iteration(
     batch, = next(iter(loader))
     p = batch.size(1)
     k = min(k, p, n)
-
-    prev_err_abs = sys.maxsize
     eigenvectors = torch.randn(size=(p, k), dtype=dtype)
 
-    for global_step in tqdm.tqdm(range(num_power_iteration), desc="power iteration", disable=disable_tqdm):
+    err_abs, err_rel = _check_error(
+        loader=loader, eigenvectors=eigenvectors, chunk_size=chunk_size,
+        device=device, disable_tqdm=disable_tqdm,
+    )
+    logging.warning(f"before iteration, abs error: {err_abs:.6f}, rel error: {err_rel:.6f}")
+
+    for global_step in tqdm.tqdm(range(1, num_power_iteration + 1), desc="power iteration", disable=disable_tqdm):
         matrix = _mem_saving_matmul(
             loader=loader, eigenvectors=eigenvectors, chunk_size=chunk_size,
             device=device, disable_tqdm=disable_tqdm
@@ -200,15 +204,10 @@ def orthogonal_iteration(
             loader=loader, eigenvectors=eigenvectors, chunk_size=chunk_size,
             device=device, disable_tqdm=disable_tqdm
         )
-        err_abs, err_rel = _check_error(
-            loader=loader, eigenvectors=eigenvectors, chunk_size=chunk_size,
-            device=device, disable_tqdm=disable_tqdm,
-        )
-        logging.warning(f"global_step: {global_step}, abs error: {err_abs:.6f}, rel error: {err_rel:.6f}")
 
         if dump_dir is not None:
             utils.tsave(
-                dict(eigenvalues=eigenvalues, eigenvectors=eigenvectors, err_abs=err_abs, err_rel=err_rel),
+                dict(eigenvalues=eigenvalues, eigenvectors=eigenvectors),
                 utils.join(dump_dir, "all", f"global_step_{global_step:06d}.pt")
             )
             utils.tsave(
@@ -216,36 +215,38 @@ def orthogonal_iteration(
                 utils.join(dump_dir, "eigenvalues", f"global_step_{global_step:06d}.evals")
             )
 
-        if err_abs > stop_ratio * prev_err_abs:
-            logging.warning("Reached breaking condition...")
-            break
-        prev_err_abs = err_abs
+        if global_step % eval_steps == 0:
+            err_abs, err_rel = _check_error(
+                loader=loader, eigenvectors=eigenvectors, chunk_size=chunk_size,
+                device=device, disable_tqdm=disable_tqdm,
+            )
+            logging.warning(f"global_step: {global_step}, abs error: {err_abs:.6f}, rel error: {err_rel:.6f}")
 
     return eigenvalues, eigenvectors  # noqa
 
 
-def test_orthogonal_iteration(n=100, d=10):
+def test_orthogonal_iteration(n=100, d=20, k=10):
     torch.set_default_dtype(torch.float64)
 
     features = torch.randn(n, d)
     dataset = TensorDataset(features)
-    loader = DataLoader(dataset, batch_size=100, shuffle=False, drop_last=False)
+    loader = DataLoader(dataset, batch_size=10, shuffle=False, drop_last=False)
 
     eigenvalues, eigenvectors = orthogonal_iteration(
         loader=loader,
-        k=10,
-        num_power_iteration=5000,
+        k=k,
+        num_power_iteration=100,
         device=torch.device("cuda" if torch.cuda.is_available() else 'cpu'),
-        chunk_size=100,
+        chunk_size=2,
         dtype=torch.get_default_dtype(),
-        stop_ratio=.99999
     )
     eigenvalues_expected, eigenvectors_expected = torch.linalg.eigh(features.T @ features)
     print(eigenvalues)
     print(eigenvalues_expected.flip(dims=(0,)))
     print('---')
     print(eigenvectors)
-    print(eigenvectors_expected.flip(dims=(0,)))
+    print(eigenvectors_expected.flip(dims=(1,)))
+    torch.testing.assert_allclose(eigenvalues, eigenvalues_expected[:k], atol=1e-4, rtol=1e-4)
 
 
 def test_mem_saving_matmul(n=100, d=10):
