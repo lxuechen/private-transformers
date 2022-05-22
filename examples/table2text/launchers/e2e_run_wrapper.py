@@ -31,8 +31,8 @@ def _get_cmd(
   --save_steps 100 --save_total_limit 1 --save_at_last no \
   --logging_dir {output_dir} --logging_steps -1 \
   --seed 0 \
-  --eval_epochs {eval_epochs} --max_eval_batches 100 --evaluation_strategy epoch --evaluate_before_training "no" --evaluate_during_training "yes" --per_device_eval_batch_size 10 \
-  --max_generations 9223372036854775807 --max_generations_train 10 --max_generations_valid 9223372036854775807 \
+  --eval_epochs {eval_epochs} --max_eval_batches 10 --evaluation_strategy epoch --evaluate_before_training "no" --evaluate_during_training "yes" --per_device_eval_batch_size 10 \
+  --max_generations 10 --max_generations_train 10 --max_generations_valid 10 \
   --max_train_examples 9223372036854775807 --max_valid_examples 9223372036854775807 --max_eval_examples 9223372036854775807 \
   --data_folder {data_dir} --max_seq_len {max_seq_len} --format_mode cat \
   --per_example_max_grad_norm 0.1 --target_delta {target_delta} --target_epsilon {target_epsilon} \
