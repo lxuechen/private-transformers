@@ -40,12 +40,13 @@ def pca(
     num_power_iteration=100,
     batch_size=200,
 ):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    loader = load_data(ckpts_dir=grads_dir, num_ckpts=n, batch_size=batch_size)
-    get_bases(
-        loader=loader,
+    orthogonal_iteration(
+        loader=load_data(ckpts_dir=grads_dir, num_ckpts=n, batch_size=batch_size),
         k=k,
-        num_power_iteration=num_power_iteration, device=device, dump_dir=dump_dir,
+        num_power_iteration=num_power_iteration,
+        device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
+        dump_dir=dump_dir,
+        dtype=torch.get_default_dtype()
     )
 
 
@@ -53,9 +54,10 @@ def _mem_saving_matmul(
     loader: DataLoader,
     eigenvectors: torch.Tensor,
     chunk_size: int,
-    device: torch.device,
+    device: Optional[torch.device],
     disable_tqdm: bool,
 ):
+    """Compute AQ."""
     out = torch.zeros_like(eigenvectors)
     nsteps = int(math.ceil(eigenvectors.size(1) / chunk_size))
     for idx in tqdm.tqdm(range(nsteps), desc="matmul", disable=disable_tqdm):
@@ -72,7 +74,7 @@ def _mem_saving_matmul(
 def _eigenvectors_to_eigenvalues(
     loader: DataLoader, eigenvectors: torch.Tensor,
     chunk_size: int,  # Number of eigenvalues to process at once.
-    device: torch.device,
+    device: Optional[torch.device],
     disable_tqdm: bool,
 ):
     nums = []
@@ -145,14 +147,14 @@ def _orthogonalize(matrix, device, disable_tqdm: bool, chunk_size: int = 100):
     return matrix.cpu()
 
 
-def get_bases(
+def orthogonal_iteration(
     loader: DataLoader,
     k: int,
     num_power_iteration=1,
     disable_tqdm=False,
     stop_ratio=.9999,
     dtype=torch.float,
-    device=None,
+    device: Optional[torch.device] = None,
     dump_dir=None,
     chunk_size=100,
 ):
@@ -219,19 +221,59 @@ def get_bases(
             break
         prev_err_abs = err_abs
 
-    return eigenvectors, eigenvalues  # noqa
+    return eigenvalues, eigenvectors  # noqa
 
 
-# TODO: Write an eigenvalue test.
+def test_orthogonal_iteration(n=100, d=10):
+    torch.set_default_dtype(torch.float64)
+
+    features = torch.randn(n, d)
+    dataset = TensorDataset(features)
+    loader = DataLoader(dataset, batch_size=100, shuffle=False, drop_last=False)
+
+    eigenvalues, eigenvectors = orthogonal_iteration(
+        loader=loader,
+        k=10,
+        num_power_iteration=5000,
+        device=torch.device("cuda" if torch.cuda.is_available() else 'cpu'),
+        chunk_size=100,
+        dtype=torch.get_default_dtype(),
+        stop_ratio=.99999
+    )
+    eigenvalues_expected, eigenvectors_expected = torch.linalg.eigh(features.T @ features)
+    print(eigenvalues)
+    print(eigenvalues_expected.flip(dims=(0,)))
+    print('---')
+    print(eigenvectors)
+    print(eigenvectors_expected.flip(dims=(0,)))
+
+
+def test_mem_saving_matmul(n=100, d=10):
+    torch.set_default_dtype(torch.float64)
+
+    features = torch.randn(n, d)
+    dataset = TensorDataset(features)
+    loader = DataLoader(dataset, batch_size=100, shuffle=False, drop_last=False)
+    Q = torch.randn(d, d)
+
+    matmul = _mem_saving_matmul(
+        loader, Q, chunk_size=10, device=None, disable_tqdm=True
+    )
+    matmul_expected = features.T @ features @ Q
+    torch.testing.assert_allclose(matmul, matmul_expected)
+
+
 def main(task="pca", **kwargs):
     utils.runs_tasks(
         task=task,
-        task_names=("pca",),
-        task_callables=(pca,),
+        task_names=("pca", "test_orthogonal_iteration", "test_mem_saving_matmul"),
+        task_callables=(pca, test_orthogonal_iteration, test_mem_saving_matmul),
         **kwargs,
     )
 
 
 if __name__ == "__main__":
     # python -m classification.numerical --task "pca" --n 100 --k 100
+    # python -m classification.numerical --task "test_orthogonal_iteration"
+    # python -m classification.numerical --task "test_mem_saving_matmul"
     fire.Fire(main)
