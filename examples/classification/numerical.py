@@ -38,7 +38,10 @@ def pca(
     k=2000,
     num_power_iteration=100,
     batch_size=200,
+    seed=42,
 ):
+    utils.manual_seed(seed)
+
     orthogonal_iteration(
         loader=load_data(ckpts_dir=grads_dir, num_ckpts=n, batch_size=batch_size),
         k=k,
