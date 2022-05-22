@@ -201,7 +201,7 @@ def main():
     if model_args.attention_only:
         model.requires_grad_(False)
         for name, param in model.named_parameters():
-            if 'query' in name or 'value' in name:
+            if 'c_attn.weight' in name:
                 param.requires_grad_(True)
     else:
         model.requires_grad_(True)
@@ -249,7 +249,6 @@ def main():
             module=model,
             batch_size=actual_batch_size,
             sample_size=len(train_dataset),
-            gradient_accumulation_steps=training_args.gradient_accumulation_steps,
             epochs=training_args.num_train_epochs,
             max_grad_norm=privacy_args.per_example_max_grad_norm,
             noise_multiplier=privacy_args.noise_multiplier,

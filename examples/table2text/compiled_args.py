@@ -200,5 +200,5 @@ class AuxiliaryArguments:
     orthogonal_projection_rank: int = field(default=100)
 
     def __post_init__(self):
-        self.eval_spectrum = self.eval_spectrum.lower() in true_tags  # noqa
-        self.store_grads = self.store_grads.lower() in true_tags  # noqa
+        self.eval_spectrum = self.eval_spectrum.lower() in TRUE_TAGS  # noqa
+        self.store_grads = self.store_grads.lower() in TRUE_TAGS  # noqa
