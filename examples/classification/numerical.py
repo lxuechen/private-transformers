@@ -246,7 +246,7 @@ def test_orthogonal_iteration(n=100, d=20, k=10):
     print('---')
     print(eigenvectors)
     print(eigenvectors_expected.flip(dims=(1,)))
-    torch.testing.assert_allclose(eigenvalues, eigenvalues_expected[:k], atol=1e-4, rtol=1e-4)
+    torch.testing.assert_allclose(eigenvalues, eigenvalues_expected.flip(dims=(0,))[:k], atol=1e-4, rtol=1e-4)
 
 
 def test_mem_saving_matmul(n=100, d=10):
