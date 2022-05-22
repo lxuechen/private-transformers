@@ -33,8 +33,7 @@ def _get_cmd(
   --learning_rate {learning_rate} --lr_decay "no" --num_train_epochs {num_train_epochs} --per_device_train_batch_size 16 --gradient_accumulation_steps 64 \
   --non_private {non_private} \
   --ghost_clipping {ghost_clipping} \
-  --static_lm_head "yes" \
-  --static_embedding "yes"'''
+  --attention_only "yes"'''
     return cmd
 
 

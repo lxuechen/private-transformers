@@ -10,6 +10,8 @@ import transformers
 MODEL_CONFIG_CLASSES = list(transformers.MODEL_WITH_LM_HEAD_MAPPING.keys())
 MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 
+TRUE_TAGS = ('y', 'yes', 't', 'true')
+
 
 # See all possible arguments in src/transformers/training_args.py
 # or by passing the --help flag to this script.
@@ -40,8 +42,14 @@ class ModelArguments:
         default=None, metadata={"help": "Where do you want to store the pretrained models downloaded from s3"}
     )
 
-    static_lm_head: bool = field(default=False)
-    static_embedding: bool = field(default=False)
+    static_lm_head: str = field(default='no')
+    static_embedding: str = field(default='no')
+    attention_only: str = field(default="no")
+
+    def __post_init__(self):
+        self.static_lm_head = self.static_lm_head.lower() in TRUE_TAGS
+        self.static_embedding = self.static_embedding.lower() in TRUE_TAGS
+        self.attention_only = self.attention_only.lower() in TRUE_TAGS
 
 
 @dataclass

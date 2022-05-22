@@ -198,12 +198,18 @@ def main():
     )
 
     # Massage the parameters.
-    model.requires_grad_(True)
-    if model_args.static_lm_head:
-        model.get_output_embeddings().requires_grad_(False)
-    if model_args.static_embedding:
-        model.get_input_embeddings().requires_grad_(False)
-        model.transformer.wpe.requires_grad_(False)
+    if model_args.attention_only:
+        model.requires_grad_(False)
+        for name, param in model.named_parameters():
+            if 'query' in name or 'value' in name:
+                param.requires_grad_(True)
+    else:
+        model.requires_grad_(True)
+        if model_args.static_lm_head:
+            model.get_output_embeddings().requires_grad_(False)
+        if model_args.static_embedding:
+            model.get_input_embeddings().requires_grad_(False)
+            model.transformer.wpe.requires_grad_(False)
     params = tuple(param for param in model.parameters() if param.requires_grad)
     names = tuple(name for name, param in model.named_parameters() if param.requires_grad)
     num_trainable_params = sum(param.numel() for param in params)
