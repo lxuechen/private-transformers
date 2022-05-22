@@ -3,130 +3,139 @@ Numerical algorithms.
 
 Currently, only contains simultaneous iter.
 """
-import gc
 import logging
 import sys
-from typing import Optional
+from typing import Optional, Tuple
 
 import fire
 from swissknife import utils
 import torch
+from torch.utils.data import TensorDataset, DataLoader
 import tqdm
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-
-def load_data(dir_, num_ckpts, varname):
-    all_ckpts = utils.all_ckpts(dir_, sort=True)[:num_ckpts]
-    return torch.stack(
-        [
-            torch.load(ckpt_path)[varname]
-            for ckpt_path in tqdm.tqdm(all_ckpts, desc="load data")
-        ]
+def load_data(ckpts_dir, num_ckpts, batch_size):
+    all_ckpts = utils.all_ckpts(ckpts_dir, sort=True)[:num_ckpts]
+    dataset = torch.stack([
+        torch.load(ckpt_path)["flat_grad"]
+        for ckpt_path in tqdm.tqdm(all_ckpts, desc="load data")
+    ])
+    dataset = TensorDataset(dataset)
+    loader = DataLoader(
+        dataset=dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        drop_last=False,
+        pin_memory=False,
     )
+    return loader
 
 
 def qr(
     grads_dir="/mnt/disks/disk-2/dump/privlm/roberta/sst-2/grad_trajectory",
     dump_dir="/mnt/disks/disk-2/dump/privlm/roberta/sst-2/orthproj",
-    num_ckpts=2000,
-    varname="flat_grad",
-    num_power_iteration=100,
+    n=2000,
     k=2000,
+    num_power_iteration=100,
+    batch_size=100,
 ):
     logging.warning(f"grads_dir: {grads_dir}")
     logging.warning(f"dump_dir: {dump_dir}")
 
-    data = load_data(dir_=grads_dir, num_ckpts=num_ckpts, varname=varname)
-    get_bases(data=data, k=k, num_power_iteration=num_power_iteration, gpu=device, dump_dir=dump_dir)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    loader = load_data(ckpts_dir=grads_dir, num_ckpts=n, batch_size=batch_size)
+    get_bases(
+        loader=loader,
+        k=k,
+        num_power_iteration=num_power_iteration, device=device, dump_dir=dump_dir,
+    )
 
 
-def _mem_saving_matmul(mat1, mat2, gpu, disable_tqdm: bool, tag=None, chunks1=2, chunks2=100):
-    # (n x p) x (p x k); most intensive dimension should be p.
-    out = []
-
-    mat1_seq = torch.chunk(mat1, chunks=chunks1, dim=0)
-    outer_tag = "outer" if tag is None else f"outer ({tag})"
-    outer_iterator = tqdm.tqdm(mat1_seq, desc=outer_tag, disable=disable_tqdm)
-    for this_mat1 in outer_iterator:
-        this_mat1 = this_mat1.to(gpu, non_blocking=True)
-        section_out = []
-
-        mat2_seq = torch.chunk(mat2, chunks=chunks2, dim=1)
-        inner_tag = "inner" if tag is None else f"inner ({tag})"
-        inner_iterator = tqdm.tqdm(mat2_seq, desc=inner_tag, disable=disable_tqdm)
-        for this_mat2 in inner_iterator:
-            section_out.append(
-                torch.mm(this_mat1, this_mat2.to(gpu)).cpu()
-            )
-        out.append(
-            torch.cat(section_out, dim=1)
-        )
-
-        del this_mat1, this_mat2
-        gc.collect()
-        torch.cuda.empty_cache()
-
-    out = torch.cat(out, dim=0)
-    return out
+def _mem_saving_matmul(
+    loader: DataLoader, eigenvectors: torch.Tensor, device: torch.device,
+):
+    eigenvectors = eigenvectors.to(device)  # (p, k).
+    out = torch.zeros_like(eigenvectors)
+    for (batch,) in loader:
+        batch = batch.to(device)
+        # TODO: Chunk this to save memory.
+        out += torch.mm(batch.T, torch.mm(batch, eigenvectors))
+    return out.cpu()
 
 
-def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, disable_tqdm=False, verbose=True,
-              gpu=None, dump_dir=None, stop_ratio=.9999, dtype="float32"):
+def _eigenvectors_to_eigenvalues(
+    loader: DataLoader, eigenvectors: torch.Tensor,
+    chunk_size: int,  # Number of eigenvalues to process at once.
+    device: torch.device,
+):
+    p, k = eigenvectors.size()
+
+    nums = []
+    dens = []
+    start_idx = 0
+    while start_idx < k:
+        chunk = eigenvectors[:, start_idx: start_idx + chunk_size].to(device)
+        dens.append((chunk ** 2.).sum(dim=0))
+
+        num = torch.zeros(size=(chunk.size(1),), device=device)
+        for (batch,) in loader:
+            batch = batch.to(device)
+            vec = batch @ chunk
+            num += (vec ** 2.).sum(dim=0)
+        nums.append(num)
+
+        start_idx += chunk_size
+
+    return (torch.cat(nums) / torch.cat(dens)).cpu()
+
+
+def get_bases(
+    loader: DataLoader,
+    k: int, num_power_iteration=1,
+    disable_tqdm=False, verbose=True,
+    device=None, dump_dir=None, stop_ratio=.9999, dtype=torch.float,
+    chunk_size=100,
+):
     """Simultaneous iteration for finding eigenvectors with the largest eigenvalues in absolute value.
 
     The method is aka subspace iteration or orthogonal iteration.
 
     Args:
-        data: Tensor of size (n, p).
+        loader: Dataloader to incrementally load in flat gradients.
         k: Number of principal components to return.
         num_power_iteration: Number of power iterations.
-        save_mem: If True, perform matmul in a for loop to save memory.
         disable_tqdm: If True, disable progress bar.
         verbose: If True, log the error of QR.
-        gpu: torch.device; defaults to CPU if None.
+        device: torch.device; defaults to CPU if None.
         dump_dir: Directory to dump the sequence of results.
         stop_ratio: Stop power iteration and return early when
             err_abs > stop_ratio * prev_err_abs.
         dtype: Precision in string format.
+        chunk_size: Size of chunks for processing the dimension that loops over eigenvectors.
 
     Returns:
         eigenvectors: Tensor of selected basis of size (p, k).
         eigenvalues: Tensor of eigenvalues of data.T @ data of size (k,).
     """
-
-    def _rayleigh_quotient(mat: torch.Tensor, vec: torch.Tensor):
-        """Compute v^t A^t A v / v^t v."""
-        mvp = torch.matmul(mat, vec)
-        return (mvp * mvp).sum() / (vec * vec).sum()
-
-    dtype = utils.get_dtype(dtype)
-    data = data.to(dtype)
-    n, p = data.size()
+    n = sum(batch.size(0) for batch, in loader)
+    batch, = next(iter(loader))
+    p = batch.size(1)
     k = min(k, p, n)
-    Q = torch.randn(size=(p, k), dtype=dtype)
+
     prev_err_abs = sys.maxsize
+    eigenvectors = torch.randn(size=(p, k), dtype=dtype)
 
-    for global_step in tqdm.tqdm(range(num_power_iteration), desc="power iter", disable=disable_tqdm):
-        if save_mem:
-            R = _mem_saving_matmul(mat1=data, mat2=Q, gpu=gpu, disable_tqdm=disable_tqdm, tag="R")
-            Q = _mem_saving_matmul(mat1=data.T, mat2=R, gpu=gpu, disable_tqdm=disable_tqdm, tag="Q")
-        else:
-            R = torch.matmul(data, Q)  # np, pk -> nk.
-            Q = torch.matmul(data.T, R)  # pn, nk -> pk.
-        Q = _orthogonalize(matrix=Q, gpu=gpu, disable_tqdm=disable_tqdm)  # pk; orthonormalize the columns.
+    for global_step in tqdm.tqdm(range(num_power_iteration), desc="power iteration", disable=disable_tqdm):
+        matrix = _mem_saving_matmul(loader=loader, eigenvectors=eigenvectors, device=device)
+        # Orthonormalize the columns via Gram-Schmidt. Size (p, k).
+        eigenvectors = _orthogonalize(matrix=matrix, device=device, disable_tqdm=disable_tqdm)
+        eigenvalues = _eigenvectors_to_eigenvalues(
+            loader=loader, eigenvectors=eigenvectors, device=device, chunk_size=chunk_size
+        )
 
-        data = data.to(gpu)
-        eigenvectors = Q
-        eigenvalues = torch.stack(
-            [_rayleigh_quotient(mat=data, vec=q.to(gpu))
-             for q in tqdm.tqdm(eigenvectors.T, desc="eigenvalues")],
-        ).cpu()
-        data = data.cpu()
-        gc.collect()
-        torch.cuda.empty_cache()
-
-        err_abs, err_rel = _check_qr_error(data=data, Q=Q, save_mem=save_mem, disable_tqdm=disable_tqdm, gpu=gpu)
+        err_abs, err_rel = _check_qr_error(
+            loader=loader, eigenvectors=eigenvectors, device=device, disable_tqdm=disable_tqdm,
+        )
         logging.warning(
             f"global_step: {global_step}, abs error: {err_abs:.6f}, rel error: {err_rel:.6f}"
         )
@@ -147,132 +156,60 @@ def get_bases(data: torch.Tensor, k: int, num_power_iteration=1, save_mem=True, 
     return eigenvectors, eigenvalues  # noqa
 
 
-# TODO: This is wrong.
-# TODO: write eigenvalue test for find bases
-def _msg(matrix, gpu, disable_tqdm: bool):
-    """Modified Gram-Schmidt.
+def _check_qr_error(
+    loader: DataLoader,
+    eigenvectors: torch.Tensor,
+    disable_tqdm: bool,
+    device: Optional[torch.device],
+) -> Tuple[float, float]:
+    """Compare QQ^tA against A."""
+    eigenvectors = eigenvectors.to(device)  # TODO: Don't put whole matrix on GPU to save memory.
 
-    Much more numerically stable.
-    """
-    n, m = matrix.size()
-    matrix = matrix.to(gpu)
+    ref_abs = []
+    err_abs = []
+    for (batch,) in loader:
+        batch = batch.to(device)  # (ni, p).
+        batch_rec = torch.mm(eigenvectors, torch.mm(eigenvectors.T, batch.T))  # (p, ni)
+        err_abs.append((batch - batch_rec.T).norm(2))
+        ref_abs.append(batch.norm(2))
 
-    for i in tqdm.tqdm(range(m), desc="orthogonalize", disable=disable_tqdm):
-        qi = matrix[:, i: i + 1]  # (p, 1).
-        if i > 0:
-            prev = matrix[:, :i]  # (p, r).
-            qi -= torch.mm(prev, torch.mm(prev.T, qi))
-        qi /= qi.norm(2)
-
-    matrix = matrix.cpu()
-    gc.collect()
-    torch.cuda.empty_cache()
-    return matrix
-
-
-def _check_qr_error(data: torch.Tensor, Q: torch.Tensor, save_mem: bool, disable_tqdm: bool,
-                    gpu: Optional[torch.device], chunks=5):
-    n, p = data.size()
-    _, k = Q.size()
-
-    if save_mem:
-        data_mul_Q = _mem_saving_matmul(
-            mat1=data, mat2=Q, gpu=gpu, disable_tqdm=disable_tqdm, tag="check qr::encode"
-        )  # (n, k).
-
-        new_data = _mem_saving_matmul(
-            mat1=Q, mat2=data_mul_Q.T, gpu=gpu, disable_tqdm=disable_tqdm, tag="check qr::decode"
-        ).T  # (n, p).
-
-        a_chunks = torch.chunk(data, chunks=chunks, dim=0)
-        b_chunks = torch.chunk(new_data, chunks=chunks, dim=0)
-        err_abs = []
-        ref_abs = []
-        for ai, bi in tqdm.tqdm(utils.zip_(a_chunks, b_chunks), desc="check qr::error chunks", total=chunks):
-            ai, bi = ai.to(gpu), bi.to(gpu)
-            err_abs.append(
-                (ai - bi).norm(2) ** 2.
-            )
-            ref_abs.append(ai.norm(2) ** 2.)
-        ref_abs = torch.stack(ref_abs).sum().sqrt()
-        err_abs = torch.stack(err_abs).sum().sqrt()
-        err_rel = err_abs / ref_abs
-    else:
-        recon = data @ Q @ Q.T  # np.
-
-        err_abs = (data - recon).norm(2)
-        err_rel = err_abs / data.norm(2)
+    ref_abs = torch.stack(ref_abs).norm(2)
+    err_abs = torch.stack(err_abs).norm(2)
+    err_rel = err_abs / ref_abs
 
     return err_abs.item(), err_rel.item()
 
 
-def _orthogonalize(matrix, gpu, disable_tqdm: bool, batch_size=100):
-    """Gram-Schmidt.
-
-    By far the slowest step, since cannot be parallelized.
-    """
-    # TODO: Refactor this part to use less mem.
-    n, m = matrix.size()
-    matrix = matrix.to(gpu)
-    for i in tqdm.tqdm(range(m), desc="orthogonalize", disable=disable_tqdm):
+def _orthogonalize(matrix, device, disable_tqdm: bool, chunk_size: int = 100):
+    # TODO: Don't put whole matrix on GPU to save memory.
+    matrix = matrix.to(device)
+    for i in tqdm.tqdm(range(matrix.size(1)), desc="orthogonalize", disable=disable_tqdm):
         # Normalize the ith column.
         col = matrix[:, i: i + 1]  # (p, 1).
         col /= col.norm(2)
         # Remove contribution of this component for remaining columns.
-        if i + 1 < m:
+        if i + 1 < matrix.size(1):
             rest = matrix[:, i + 1:]  # (p, r).
-            r = rest.size(1)
-
             start_idx = 0
-            while start_idx < r:
-                batch = rest[:, start_idx:start_idx + batch_size]
-                # TODO: Broadcast, pointwise multiply, and then reduce seems to
+            while start_idx < rest.size(1):
+                batch = rest[:, start_idx:start_idx + chunk_size]
+                # Broadcast, point-wise multiply, and then reduce seems to
                 #   suffer from less imprecision than direct matmul or mm.
                 batch -= torch.sum(col * batch, dim=0) * col
-                start_idx += batch_size
-
-        gc.collect()
-        torch.cuda.empty_cache()
-
-    matrix = matrix.cpu()
-    gc.collect()
-    torch.cuda.empty_cache()
-
-    return matrix
+                start_idx += chunk_size
+    return matrix.cpu()
 
 
-# def test_qr_decomposition(p=100000, k=100):
-#     torch.set_default_dtype(torch.float16)
-#     Q = torch.randn(p, k, device=device) * 3
-#     P1 = _orthogonalize(Q, gpu=device, disable_tqdm=True)
-#     P2 = _msg(Q, gpu=device, disable_tqdm=True)
-#     torch.testing.assert_allclose(P1, P2)
-#     print('.')
-#
-#
-# def test_mem_saving_matmul():
-#     torch.set_default_dtype(torch.float64)
-#     mat1, mat2 = torch.randn(50, 1000), torch.randn(1000, 100)
-#     mat1, mat2 = mat1.to(device), mat2.to(device)
-#     mm1 = _mem_saving_matmul(mat1, mat2, gpu=device, disable_tqdm=True).to(device)
-#     mm2 = mat1.matmul(mat2)
-#     torch.testing.assert_allclose(mm1, mm2)
-#     print('.')
-
-
+# TODO: Write an eigenvalue test.
 def main(task="qr", **kwargs):
     utils.runs_tasks(
         task=task,
         task_names=("qr",),
         task_callables=(qr,),
-        # task_names=("qr", "test_qr_decomposition", "test_mem_saving_matmul"),
-        # task_callables=(qr, test_qr_decomposition, test_mem_saving_matmul),
         **kwargs,
     )
 
 
 if __name__ == "__main__":
-    # python -m classification.numerical --task "qr"
-    # CUDA_VISIBLE_DEVICES=3 python -m classification.numerical --task "test_qr_decomposition"
-    # CUDA_VISIBLE_DEVICES=3 python -m classification.numerical --task "test_mem_saving_matmul"
+    # python -m classification.numerical --task "qr" --n 100 --k 100
     fire.Fire(main)
