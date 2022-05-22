@@ -30,7 +30,9 @@ from transformers.models.gpt2 import GPT2Tokenizer
 from transformers.optimization import get_linear_schedule_with_warmup
 
 from private_transformers import PrivacyEngine
-from .compiled_args import DataTrainingArguments, ModelArguments, PrivacyArguments, TrainingArguments
+from .compiled_args import (
+    DataTrainingArguments, ModelArguments, PrivacyArguments, TrainingArguments, AuxiliaryArguments
+)
 from .misc import get_prompt_dataset, get_all_datasets
 from .trainer import Trainer
 
@@ -41,13 +43,16 @@ MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 
 
 def main():
-    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments, PrivacyArguments))
-    model_args, data_args, training_args, privacy_args = parser.parse_args_into_dataclasses()
+    parser = HfArgumentParser(
+        (ModelArguments, DataTrainingArguments, TrainingArguments, PrivacyArguments, AuxiliaryArguments)
+    )
+    model_args, data_args, training_args, privacy_args, auxiliary_args = parser.parse_args_into_dataclasses()
 
     model_args: ModelArguments
     data_args: DataTrainingArguments
     training_args: TrainingArguments
     privacy_args: PrivacyArguments
+    auxiliary_args: AuxiliaryArguments
 
     if data_args.eval_data_file is None and training_args.do_eval:
         raise ValueError(
@@ -184,6 +189,7 @@ def main():
         model_args=model_args,
         data_args=data_args,
         privacy_args=privacy_args,
+        auxiliary_args=auxiliary_args,
         train_dataset=train_dataset,
         val_dataset=val_dataset,
         eval_dataset=eval_dataset,

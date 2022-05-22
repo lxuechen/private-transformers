@@ -179,3 +179,18 @@ class PrivacyArguments:
     def __post_init__(self):
         self.non_private = self.non_private.lower() in ('y', 'yes')
         self.ghost_clipping = self.ghost_clipping.lower() in ('y', 'yes')
+
+
+@dataclass
+class AuxiliaryArguments:
+    eval_spectrum: str = field(default="no")
+    max_spectrum_batches: int = field(default=100)
+    max_lanczos_iter: int = field(default=100)
+
+    store_grads: str = field(default="no")
+    orthogonal_projection_path: Optional[str] = field(default=None)
+    orthogonal_projection_rank: int = field(default=100)
+
+    def __post_init__(self):
+        self.eval_spectrum = self.eval_spectrum.lower() in true_tags  # noqa
+        self.store_grads = self.store_grads.lower() in true_tags  # noqa
