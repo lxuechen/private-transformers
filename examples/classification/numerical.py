@@ -197,7 +197,10 @@ def get_bases(
             loader=loader, eigenvectors=eigenvectors, chunk_size=chunk_size,
             device=device, disable_tqdm=disable_tqdm
         )
-        err_abs, err_rel = _check_error(loader=loader, eigenvectors=eigenvectors, device=device)
+        err_abs, err_rel = _check_error(
+            loader=loader, eigenvectors=eigenvectors, chunk_size=chunk_size,
+            device=device, disable_tqdm=disable_tqdm,
+        )
         logging.warning(f"global_step: {global_step}, abs error: {err_abs:.6f}, rel error: {err_rel:.6f}")
 
         if dump_dir is not None:
