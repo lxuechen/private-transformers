@@ -42,6 +42,27 @@ def dump_and_pca():
     utils.gpu_scheduler(commands=cmds)
 
 
+# TODO: Decide global_step.
+def retrain(seeds=(42, 9008, 0), run=True, global_step=2):
+    cmds = []
+    for seed in seeds:
+        for rank in (10, 20, 50, 100, None):
+            output_dir = f"/mnt/disks/disk-2/dump/privlm2/gpt2_retrain_{rank}_{seed}/e2e"
+            cmd = f'''python -m table2text.launchers.e2e_run_wrapper \
+                --model_name_or_path "distilgpt2" \
+                --output_dir {output_dir} \
+                --seed {seed} \
+                --max_generations 50000'''
+            if rank is not None:
+                cmd += f' --orthogonal_projection_path ' \
+                       f'"/mnt/disks/disk-2/dump/privlm/gpt2/e2e/orthproj/global_step_{global_step:06d}.pt"'
+                cmd += f' --orthogonal_projection_rank {rank}'
+            cmds.append(cmd)
+    if run:
+        utils.gpu_scheduler(commands=cmds)
+    return cmds
+
+
 def main(task):
     utils.runs_tasks(
         task=task,

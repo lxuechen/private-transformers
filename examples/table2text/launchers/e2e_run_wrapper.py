@@ -17,6 +17,7 @@ def _get_cmd(
     store_grads='no',
     orthogonal_projection_path=None,
     orthogonal_projection_rank=None,
+    max_generations=10,
 ):
     task_mode = "e2e"
     data_dir = "/home/lxuechen_stanford_edu/data/prefix-tuning/data/e2e_data"
@@ -32,7 +33,7 @@ def _get_cmd(
   --logging_dir {output_dir} --logging_steps -1 \
   --seed 0 \
   --eval_epochs {eval_epochs} --max_eval_batches 10 --evaluation_strategy epoch --evaluate_before_training "no" --evaluate_during_training "yes" --per_device_eval_batch_size 10 \
-  --max_generations 10 --max_generations_train 10 --max_generations_valid 10 \
+  --max_generations {max_generations} --max_generations_train 10 --max_generations_valid {max_generations} \
   --max_train_examples 9223372036854775807 --max_valid_examples 9223372036854775807 --max_eval_examples 9223372036854775807 \
   --data_folder {data_dir} --max_seq_len {max_seq_len} --format_mode cat \
   --per_example_max_grad_norm 0.1 --target_delta {target_delta} --target_epsilon {target_epsilon} \

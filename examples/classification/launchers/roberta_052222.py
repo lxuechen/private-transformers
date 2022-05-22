@@ -40,8 +40,9 @@ def get_bases_prompt(seed=42, run=True):
     return cmd
 
 
+# TODO: Decide global_step.
 # python -m classification.launchers.roberta_052222 --task retrain_prompt
-def retrain_prompt(seeds=(42, 9008, 0), run=True):
+def retrain_prompt(seeds=(42, 9008, 0), run=True, global_step=6):
     cmds = []
     for seed in seeds:
         for rank in (10, 20, 50, 100, None):
@@ -65,7 +66,7 @@ def retrain_prompt(seeds=(42, 9008, 0), run=True):
           --seed {seed}'''
             if rank is not None:
                 cmd += f' --orthogonal_projection_path ' \
-                       f'"/mnt/disks/disk-2/dump/privlm/roberta2_prompt/sst-2/orthproj/global_step_000002.pt"'
+                       f'"/mnt/disks/disk-2/dump/privlm/roberta2_prompt/sst-2/orthproj/global_step_{global_step:06d}.pt"'
                 cmd += f' --orthogonal_projection_rank {rank}'
             cmds.append(cmd)
 
