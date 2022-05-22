@@ -78,8 +78,6 @@ def _eigenvectors_to_eigenvalues(
     device: torch.device,
     disable_tqdm: bool,
 ):
-    p, k = eigenvectors.size()
-
     nums = []
     dens = []
 
@@ -100,19 +98,26 @@ def _eigenvectors_to_eigenvalues(
     return (torch.cat(nums) / torch.cat(dens)).cpu()
 
 
-def _check_qr_error(
+def _check_error(
     loader: DataLoader,
     eigenvectors: torch.Tensor,
     device: Optional[torch.device],
+    chunk_size: int,
+    disable_tqdm: bool,
 ) -> Tuple[float, float]:
     """Compare QQ^tA against A."""
-    eigenvectors = eigenvectors.to(device)  # TODO: Don't put whole matrix on GPU to save memory.
-
     ref_abs = []
     err_abs = []
-    for (batch,) in loader:
+    for (batch,) in tqdm.tqdm(loader, desc="check error", disable=disable_tqdm):
         batch = batch.to(device)  # (ni, p).
-        batch_rec = torch.mm(eigenvectors, torch.mm(eigenvectors.T, batch.T))  # (p, ni).
+        batch_rec = torch.zeros_like(batch)  # (ni, p).
+
+        nsteps = int(math.ceil(eigenvectors.size(1) / chunk_size))
+        for idx in range(nsteps):
+            start_idx = int(idx * chunk_size)
+            chunk = eigenvectors[:, start_idx: start_idx + chunk_size].to(device)
+            batch_rec += torch.mm(chunk, torch.mm(chunk.T, batch.T))
+
         err_abs.append((batch - batch_rec.T).norm(2))
         ref_abs.append(batch.norm(2))
 
@@ -192,7 +197,7 @@ def get_bases(
             loader=loader, eigenvectors=eigenvectors, chunk_size=chunk_size,
             device=device, disable_tqdm=disable_tqdm
         )
-        err_abs, err_rel = _check_qr_error(loader=loader, eigenvectors=eigenvectors, device=device)
+        err_abs, err_rel = _check_error(loader=loader, eigenvectors=eigenvectors, device=device)
         logging.warning(f"global_step: {global_step}, abs error: {err_abs:.6f}, rel error: {err_rel:.6f}")
 
         if dump_dir is not None:
