@@ -29,7 +29,7 @@ def _get_cmd(
   --tokenizer_name {model_name_or_path} \
   --do_train --do_eval \
   --line_by_line \
-  --save_steps 100 --save_total_limit 1 --save_at_last no \
+  --save_steps 4000 --save_total_limit 1 --save_at_last no \
   --logging_dir {output_dir} --logging_steps -1 \
   --seed 0 \
   --eval_epochs {eval_epochs} --max_eval_batches 10 --evaluation_strategy epoch --evaluate_before_training "no" --evaluate_during_training "yes" --per_device_eval_batch_size 10 \
