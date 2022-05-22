@@ -4,6 +4,7 @@ Numerical algorithms.
 Currently, only contains simultaneous iter.
 """
 import logging
+import math
 import sys
 from typing import Optional, Tuple
 
@@ -52,21 +53,30 @@ def qr(
 
 
 def _mem_saving_matmul(
-    loader: DataLoader, eigenvectors: torch.Tensor, device: torch.device,
+    loader: DataLoader,
+    eigenvectors: torch.Tensor,
+    chunk_size: int,
+    device: torch.device,
+    disable_tqdm: bool,
 ):
-    eigenvectors = eigenvectors.to(device)  # (p, k).
     out = torch.zeros_like(eigenvectors)
-    for (batch,) in loader:
-        batch = batch.to(device)
-        # TODO: Chunk this to save memory.
-        out += torch.mm(batch.T, torch.mm(batch, eigenvectors))
-    return out.cpu()
+    nsteps = int(math.ceil(eigenvectors.size(1) / chunk_size))
+    for idx in tqdm.tqdm(range(nsteps), desc="matmul", disable=disable_tqdm):
+        start_idx = int(idx * chunk_size)
+        chunk = eigenvectors[:, start_idx:start_idx + chunk_size].to(device)  # GPU. (p, k1).
+        this_out = torch.zeros_like(chunk)  # GPU. (p, k1).
+        for (batch,) in loader:
+            batch = batch.to(device)
+            this_out += torch.mm(batch.T, torch.mm(batch, chunk))
+        out[:, start_idx:start_idx + chunk_size] = this_out.cpu()
+    return out
 
 
 def _eigenvectors_to_eigenvalues(
     loader: DataLoader, eigenvectors: torch.Tensor,
     chunk_size: int,  # Number of eigenvalues to process at once.
     device: torch.device,
+    disable_tqdm: bool,
 ):
     p, k = eigenvectors.size()
 
@@ -89,77 +99,9 @@ def _eigenvectors_to_eigenvalues(
     return (torch.cat(nums) / torch.cat(dens)).cpu()
 
 
-def get_bases(
-    loader: DataLoader,
-    k: int, num_power_iteration=1,
-    disable_tqdm=False, verbose=True,
-    device=None, dump_dir=None, stop_ratio=.9999, dtype=torch.float,
-    chunk_size=100,
-):
-    """Simultaneous iteration for finding eigenvectors with the largest eigenvalues in absolute value.
-
-    The method is aka subspace iteration or orthogonal iteration.
-
-    Args:
-        loader: Dataloader to incrementally load in flat gradients.
-        k: Number of principal components to return.
-        num_power_iteration: Number of power iterations.
-        disable_tqdm: If True, disable progress bar.
-        verbose: If True, log the error of QR.
-        device: torch.device; defaults to CPU if None.
-        dump_dir: Directory to dump the sequence of results.
-        stop_ratio: Stop power iteration and return early when
-            err_abs > stop_ratio * prev_err_abs.
-        dtype: Precision in string format.
-        chunk_size: Size of chunks for processing the dimension that loops over eigenvectors.
-
-    Returns:
-        eigenvectors: Tensor of selected basis of size (p, k).
-        eigenvalues: Tensor of eigenvalues of data.T @ data of size (k,).
-    """
-    n = sum(batch.size(0) for batch, in loader)
-    batch, = next(iter(loader))
-    p = batch.size(1)
-    k = min(k, p, n)
-
-    prev_err_abs = sys.maxsize
-    eigenvectors = torch.randn(size=(p, k), dtype=dtype)
-
-    for global_step in tqdm.tqdm(range(num_power_iteration), desc="power iteration", disable=disable_tqdm):
-        matrix = _mem_saving_matmul(loader=loader, eigenvectors=eigenvectors, device=device)
-        # Orthonormalize the columns via Gram-Schmidt. Size (p, k).
-        eigenvectors = _orthogonalize(matrix=matrix, device=device, disable_tqdm=disable_tqdm)
-        eigenvalues = _eigenvectors_to_eigenvalues(
-            loader=loader, eigenvectors=eigenvectors, device=device, chunk_size=chunk_size
-        )
-
-        err_abs, err_rel = _check_qr_error(
-            loader=loader, eigenvectors=eigenvectors, device=device, disable_tqdm=disable_tqdm,
-        )
-        logging.warning(
-            f"global_step: {global_step}, abs error: {err_abs:.6f}, rel error: {err_rel:.6f}"
-        )
-
-        if dump_dir is not None:
-            utils.makedirs(dump_dir, exist_ok=True)
-            dump_path = utils.join(dump_dir, f"global_step_{global_step:06d}.pt")
-            torch.save(
-                dict(eigenvalues=eigenvalues, eigenvectors=eigenvectors, err_abs=err_abs, err_rel=err_rel),
-                dump_path,
-            )
-
-        if err_abs > stop_ratio * prev_err_abs:
-            logging.warning("Reached breaking condition...")
-            break
-        prev_err_abs = err_abs
-
-    return eigenvectors, eigenvalues  # noqa
-
-
 def _check_qr_error(
     loader: DataLoader,
     eigenvectors: torch.Tensor,
-    disable_tqdm: bool,
     device: Optional[torch.device],
 ) -> Tuple[float, float]:
     """Compare QQ^tA against A."""
@@ -198,6 +140,74 @@ def _orthogonalize(matrix, device, disable_tqdm: bool, chunk_size: int = 100):
                 batch -= torch.sum(col * batch, dim=0) * col
                 start_idx += chunk_size
     return matrix.cpu()
+
+
+def get_bases(
+    loader: DataLoader,
+    k: int, num_power_iteration=1,
+    disable_tqdm=False, verbose=True,
+    device=None, dump_dir=None, stop_ratio=.9999, dtype=torch.float,
+    chunk_size=50,
+):
+    """Simultaneous iteration for finding eigenvectors with the largest eigenvalues in absolute value.
+
+    The method is aka subspace iteration or orthogonal iteration.
+
+    Args:
+        loader: Dataloader to incrementally load in flat gradients.
+        k: Number of principal components to return.
+        num_power_iteration: Number of power iterations.
+        disable_tqdm: If True, disable progress bar.
+        verbose: If True, log the error of QR.
+        device: torch.device; defaults to CPU if None.
+        dump_dir: Directory to dump the sequence of results.
+        stop_ratio: Stop power iteration and return early when
+            err_abs > stop_ratio * prev_err_abs.
+        dtype: Precision in string format.
+        chunk_size: Size of chunks for processing the dimension that loops over eigenvectors.
+
+    Returns:
+        eigenvectors: Tensor of selected basis of size (p, k).
+        eigenvalues: Tensor of eigenvalues of data.T @ data of size (k,).
+    """
+    n = sum(batch.size(0) for batch, in loader)
+    batch, = next(iter(loader))
+    p = batch.size(1)
+    k = min(k, p, n)
+
+    prev_err_abs = sys.maxsize
+    eigenvectors = torch.randn(size=(p, k), dtype=dtype)
+
+    for global_step in tqdm.tqdm(range(num_power_iteration), desc="power iteration", disable=disable_tqdm):
+        matrix = _mem_saving_matmul(
+            loader=loader, eigenvectors=eigenvectors, chunk_size=chunk_size,
+            device=device, disable_tqdm=disable_tqdm
+        )
+        eigenvectors = _orthogonalize(
+            matrix=matrix,
+            device=device, disable_tqdm=disable_tqdm
+        )  # (p, k).
+        eigenvalues = _eigenvectors_to_eigenvalues(
+            loader=loader, eigenvectors=eigenvectors, chunk_size=chunk_size,
+            device=device, disable_tqdm=disable_tqdm
+        )
+        err_abs, err_rel = _check_qr_error(loader=loader, eigenvectors=eigenvectors, device=device)
+        logging.warning(f"global_step: {global_step}, abs error: {err_abs:.6f}, rel error: {err_rel:.6f}")
+
+        if dump_dir is not None:
+            utils.makedirs(dump_dir, exist_ok=True)
+            dump_path = utils.join(dump_dir, f"global_step_{global_step:06d}.pt")
+            torch.save(
+                dict(eigenvalues=eigenvalues, eigenvectors=eigenvectors, err_abs=err_abs, err_rel=err_rel),
+                dump_path,
+            )
+
+        if err_abs > stop_ratio * prev_err_abs:
+            logging.warning("Reached breaking condition...")
+            break
+        prev_err_abs = err_abs
+
+    return eigenvectors, eigenvalues  # noqa
 
 
 # TODO: Write an eigenvalue test.
