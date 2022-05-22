@@ -38,7 +38,7 @@ def qr(
     n=2000,
     k=2000,
     num_power_iteration=100,
-    batch_size=100,
+    batch_size=200,
 ):
     logging.warning(f"grads_dir: {grads_dir}")
     logging.warning(f"dump_dir: {dump_dir}")
@@ -82,19 +82,20 @@ def _eigenvectors_to_eigenvalues(
 
     nums = []
     dens = []
-    start_idx = 0
-    while start_idx < k:
-        chunk = eigenvectors[:, start_idx: start_idx + chunk_size].to(device)
+
+    nsteps = int(math.ceil(eigenvectors.size(1) / chunk_size))
+    for idx in tqdm.tqdm(range(nsteps), desc="evec2eval", disable=disable_tqdm):
+        start_idx = int(idx * chunk_size)
+
+        chunk = eigenvectors[:, start_idx: start_idx + chunk_size].to(device)  # (p, ki).
         dens.append((chunk ** 2.).sum(dim=0))
 
         num = torch.zeros(size=(chunk.size(1),), device=device)
         for (batch,) in loader:
-            batch = batch.to(device)
-            vec = batch @ chunk
+            batch = batch.to(device)  # (nj, p).
+            vec = batch @ chunk  # (nj, ki).
             num += (vec ** 2.).sum(dim=0)
         nums.append(num)
-
-        start_idx += chunk_size
 
     return (torch.cat(nums) / torch.cat(dens)).cpu()
 
@@ -111,7 +112,7 @@ def _check_qr_error(
     err_abs = []
     for (batch,) in loader:
         batch = batch.to(device)  # (ni, p).
-        batch_rec = torch.mm(eigenvectors, torch.mm(eigenvectors.T, batch.T))  # (p, ni)
+        batch_rec = torch.mm(eigenvectors, torch.mm(eigenvectors.T, batch.T))  # (p, ni).
         err_abs.append((batch - batch_rec.T).norm(2))
         ref_abs.append(batch.norm(2))
 
@@ -147,7 +148,7 @@ def get_bases(
     k: int, num_power_iteration=1,
     disable_tqdm=False, verbose=True,
     device=None, dump_dir=None, stop_ratio=.9999, dtype=torch.float,
-    chunk_size=50,
+    chunk_size=100,
 ):
     """Simultaneous iteration for finding eigenvectors with the largest eigenvalues in absolute value.
 
