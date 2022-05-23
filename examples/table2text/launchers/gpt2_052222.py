@@ -10,15 +10,17 @@ def dump_grads(run=True):
     cmd = '''python -m table2text.launchers.e2e_run_wrapper \
         --output_dir "/mnt/disks/disk-2/dump/privlm2/gpt2/e2e" \
         --model_name_or_path "distilgpt2" \
-        --num_train_epochs 50 \
+        --num_train_epochs 100 \
         --store_grads "yes" \
-        --eval_epochs 10
+        --eval_epochs 20 \
+        --learning_rate 1e-4
         '''
     if run:
         utils.gpu_scheduler(commands=[cmd])
     return cmd
 
 
+# python -m table2text.launchers.gpt2_052222 --task "get_bases"
 def get_bases(seed=42, run=True):
     """Perform PCA for grad near local optimum."""
     cmd = f'''python -m classification.numerical \
