@@ -42,6 +42,36 @@ def get_bases_prompt(seed=42, run=True, start_index=0, n=4000, k=1000):
     return cmd
 
 
+# python -m classification.launchers.roberta_052222 --task retrain_prompt_test
+def retrain_prompt_test(run=True, seed=42, rank=100):
+    """This func uses the PCA for gradients taken midway -- ignore gradients at the beginning."""
+    output_dir = f"/mnt/disks/disk-2/dump/privlm2/roberta_prompt_retrain_test_{rank}_{seed}/sst-2"
+    cmd = f'''python -m classification.run_wrapper \
+          --output_dir {output_dir} \
+          --task_name "sst-2" \
+          --model_name_or_path "distilroberta-base" \
+          --few_shot_type "prompt" \
+          --attention_only "yes" \
+          --static_lm_head "yes" \
+          --static_embedding "no" \
+          --per_device_train_batch_size 25 \
+          --batch_size 1000 \
+          --ghost_clipping "no" \
+          --num_train_epochs 4 \
+          --eval_spectrum "no" \
+          --non_private "no" \
+          --eval_steps 25 \
+          --randomly_initialize "no" \
+          --seed {seed}'''
+    if rank is not None:
+        cmd += f' --orthogonal_projection_path ' \
+               f'"/mnt/disks/disk-2/dump/privlm2/roberta_prompt/sst-2/orthproj_42_300/all/global_step_000018.pt"'
+        cmd += f' --orthogonal_projection_rank {rank}'
+    if run:
+        utils.gpu_scheduler(commands=[cmd])
+    return cmd
+
+
 # TODO: Decide global_step.
 # python -m classification.launchers.roberta_052222 --task retrain_prompt
 def retrain_prompt(seeds=(42, 9008, 0), run=True, global_step=6):
@@ -103,14 +133,16 @@ def main(
             "get_bases_prompt",
             "retrain_prompt",
             "retrain_all",
-            "dump_and_pca"
+            "dump_and_pca",
+            "retrain_prompt_test"
         ),
         task_callables=(
             dump_grads_prompt,
             get_bases_prompt,
             retrain_prompt,
             retrain_all,
-            dump_and_pca
+            dump_and_pca,
+            retrain_prompt_test
         ),
         **kwargs
     )
