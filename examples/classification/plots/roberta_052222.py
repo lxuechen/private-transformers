@@ -64,7 +64,9 @@ def plot_helper(
 def make_suppl_plots():
     base_dir = "/Users/xuechenli/Desktop/dump_a100/privlm2/roberta_prompt/sst-2"
 
-    # Less samples.
+    # TODO: Less samples without head truncation; experiment running.
+
+    # Less samples with head truncation.
     ckpt_path = f"{base_dir}/orthproj_42_300/eigenvalues/global_step_{10:06d}.evals"
     dump_dir = f"./classification/plots/less_samples_trim_front"
     plot_helper(dump_dir=dump_dir, ckpt_path=ckpt_path)
