@@ -26,6 +26,7 @@ def dump_grads_prompt(run=True):
 
 
 # python -m classification.launchers.roberta_052222 --task get_bases_prompt
+# python -m classification.launchers.roberta_052222 --task get_bases_prompt --n 1000 --k 500
 # python -m classification.launchers.roberta_052222 --task get_bases_prompt --n 1000 --k 500 --start_index 300
 def get_bases_prompt(seed=42, run=True, start_index=0, n=4000, k=1000):
     """Perform PCA for grad near local optimum."""
