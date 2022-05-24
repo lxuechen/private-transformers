@@ -14,8 +14,8 @@ from torch.utils.data import TensorDataset, DataLoader
 import tqdm
 
 
-def load_data(ckpts_dir, num_ckpts, batch_size):
-    all_ckpts = utils.all_ckpts(ckpts_dir, sort=True)[:num_ckpts]
+def load_data(ckpts_dir, num_ckpts, start_index, batch_size):
+    all_ckpts = utils.all_ckpts(ckpts_dir, sort=True)[start_index:start_index + num_ckpts]
     dataset = torch.stack([
         torch.load(ckpt_path)["flat_grad"]
         for ckpt_path in tqdm.tqdm(all_ckpts, desc="load data")
@@ -39,11 +39,12 @@ def pca(
     num_power_iteration=100,
     batch_size=200,
     seed=42,
+    start_index=0,
 ):
     utils.manual_seed(seed)
 
     orthogonal_iteration(
-        loader=load_data(ckpts_dir=grads_dir, num_ckpts=n, batch_size=batch_size),
+        loader=load_data(ckpts_dir=grads_dir, num_ckpts=n, start_index=start_index, batch_size=batch_size),
         k=k,
         num_power_iteration=num_power_iteration,
         device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),

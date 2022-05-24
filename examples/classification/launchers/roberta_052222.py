@@ -26,15 +26,17 @@ def dump_grads_prompt(run=True):
 
 
 # python -m classification.launchers.roberta_052222 --task get_bases_prompt
-def get_bases_prompt(seed=42, run=True):
+# python -m classification.launchers.roberta_052222 --task get_bases_prompt --n 1000 --k 500 --start_index 300
+def get_bases_prompt(seed=42, run=True, start_index=0, n=4000, k=1000):
     """Perform PCA for grad near local optimum."""
     cmd = f'''python -m classification.numerical \
         --grads_dir "/mnt/disks/disk-2/dump/privlm2/roberta_prompt/sst-2/grad_trajectory" \
-        --dump_dir "/mnt/disks/disk-2/dump/privlm2/roberta_prompt/sst-2/orthproj_{seed}" \
-        --n 4000 \
-        --k 1000 \
+        --dump_dir "/mnt/disks/disk-2/dump/privlm2/roberta_prompt/sst-2/orthproj_{seed}_{start_index}" \
+        --n {n} \
+        --k {k} \
         --num_power_iteration 400 \
-        --seed {seed}'''
+        --seed {seed} \
+        --start_index {start_index}'''
     if run:
         utils.gpu_scheduler(commands=[cmd])
     return cmd
@@ -66,7 +68,8 @@ def retrain_prompt(seeds=(42, 9008, 0), run=True, global_step=6):
           --seed {seed}'''
             if rank is not None:
                 cmd += f' --orthogonal_projection_path ' \
-                       f'"/mnt/disks/disk-2/dump/privlm/roberta2_prompt/sst-2/orthproj/global_step_{global_step:06d}.pt"'
+                       f'"/mnt/disks/disk-2/dump/privlm/roberta2_prompt/sst-2/orthproj/global_step_' \
+                       f'{global_step:06d}.pt"'
                 cmd += f' --orthogonal_projection_rank {rank}'
             cmds.append(cmd)
 
@@ -91,7 +94,7 @@ def dump_and_pca():
 
 
 def main(
-    task='dump_grads',
+    task='dump_grads', **kwargs,
 ):
     utils.runs_tasks(
         task=task,
@@ -108,7 +111,8 @@ def main(
             retrain_prompt,
             retrain_all,
             dump_and_pca
-        )
+        ),
+        **kwargs
     )
 
 
