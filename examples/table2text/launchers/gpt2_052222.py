@@ -21,15 +21,16 @@ def dump_grads(run=True):
 
 
 # python -m table2text.launchers.gpt2_052222 --task "get_bases"
-def get_bases(seed=42, run=True):
+def get_bases(seed=42, run=True, start_index=0, n=4000, k=1000):
     """Perform PCA for grad near local optimum."""
     cmd = f'''python -m classification.numerical \
         --grads_dir "/mnt/disks/disk-2/dump/privlm2/gpt2/e2e/grad_trajectory" \
         --dump_dir "/mnt/disks/disk-2/dump/privlm2/gpt2/e2e/orthproj_{seed}" \
-        --n 4000 \
-        --k 1000 \
-        --num_power_iteration 400 \
-        --seed {seed}'''
+        --n {n} \
+        --k {k} \
+        --num_power_iteration 101 \
+        --seed {seed} \
+        --start_index {start_index}'''
     if run:
         utils.gpu_scheduler(commands=[cmd])
     return cmd
@@ -44,8 +45,7 @@ def dump_and_pca():
     utils.gpu_scheduler(commands=cmds)
 
 
-# TODO: Decide global_step.
-def retrain(seeds=(42, 9008, 0), run=True, global_step=2):
+def retrain(seeds=(42, 9008, 0), run=True, global_step=50):
     cmds = []
     for seed in seeds:
         for rank in (10, 20, 50, 100, None):

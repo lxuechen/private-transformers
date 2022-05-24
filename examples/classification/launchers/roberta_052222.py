@@ -34,7 +34,7 @@ def get_bases_prompt(seed=42, run=True, start_index=0, n=4000, k=1000):
         --dump_dir "/mnt/disks/disk-2/dump/privlm2/roberta_prompt/sst-2/orthproj_{seed}_{start_index}" \
         --n {n} \
         --k {k} \
-        --num_power_iteration 400 \
+        --num_power_iteration 101 \
         --seed {seed} \
         --start_index {start_index}'''
     if run:
@@ -72,9 +72,8 @@ def retrain_prompt_test(run=True, seed=42, rank=100):
     return cmd
 
 
-# TODO: Decide global_step.
 # python -m classification.launchers.roberta_052222 --task retrain_prompt
-def retrain_prompt(seeds=(42, 9008, 0), run=True, global_step=6):
+def retrain_prompt(seeds=(42, 9008, 0), run=True, global_step=50):
     cmds = []
     for seed in seeds:
         for rank in (10, 20, 50, 100, None):
