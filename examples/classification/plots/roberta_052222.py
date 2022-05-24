@@ -37,7 +37,7 @@ def plot_helper(
     plots = [
         dict(x=x, y=g, marker='+', linewidth=0, label="estimated values", markersize=8, alpha=0.8),
         dict(x=x, y=g_linfit,
-             label=f"linear fit: $\log y = {linfit.slope:.2f} \log x {linfit_sign}{linfit.intercept:.2f} $ ($R^2="
+             label=f"linear fit: $\log y = {linfit.slope:.4f} \log x {linfit_sign}{linfit.intercept:.2f} $ ($R^2="
                    f"{linfit.rvalue ** 2.:.3f}$)"),
     ]
     utils.plot_wrapper(
@@ -64,7 +64,9 @@ def plot_helper(
 def make_suppl_plots():
     base_dir = "/Users/xuechenli/Desktop/dump_a100/privlm2/roberta_prompt/sst-2"
 
-    # TODO: Less samples without head truncation; experiment running.
+    ckpt_path = f"{base_dir}/orthproj_42_0/eigenvalues/global_step_{10:06d}.evals"
+    dump_dir = f"./classification/plots/less_samples_no_trim_front"
+    plot_helper(dump_dir=dump_dir, ckpt_path=ckpt_path)
 
     # Less samples with head truncation.
     ckpt_path = f"{base_dir}/orthproj_42_300/eigenvalues/global_step_{10:06d}.evals"
