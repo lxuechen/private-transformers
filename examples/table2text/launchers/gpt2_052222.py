@@ -57,7 +57,7 @@ def retrain(seeds=(42, 9008, 0), run=True, global_step=10):
                 --max_generations 50000'''
             if rank is not None:
                 cmd += f' --orthogonal_projection_path ' \
-                       f'"/mnt/disks/disk-2/dump/privlm/gpt2/e2e/orthproj_42/all/global_step_{global_step:06d}.pt"'
+                       f'"/mnt/disks/disk-2/dump/privlm2/gpt2/e2e/orthproj_42/all/global_step_{global_step:06d}.pt"'
                 cmd += f' --orthogonal_projection_rank {rank}'
             cmds.append(cmd)
     if run:
