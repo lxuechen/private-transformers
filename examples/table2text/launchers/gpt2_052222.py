@@ -65,12 +65,33 @@ def retrain(seeds=(42, 9008, 0), run=True, global_step=10):
     return cmds
 
 
+def retrain2(seeds=(42, 9008, 0), run=True, global_step=10):
+    cmds = []
+    for seed in seeds:
+        for rank in (200, 500):
+            output_dir = f"/mnt/disks/disk-2/dump/privlm2/gpt2_retrain_{rank}_{seed}/e2e"
+            cmd = f'''python -m table2text.launchers.e2e_run_wrapper \
+                --model_name_or_path "distilgpt2" \
+                --output_dir {output_dir} \
+                --seed {seed} \
+                --max_generations 50000'''
+            if rank is not None:
+                cmd += f' --orthogonal_projection_path ' \
+                       f'"/mnt/disks/disk-2/dump/privlm2/gpt2/e2e/orthproj_42/all/global_step_{global_step:06d}.pt"'
+                cmd += f' --orthogonal_projection_rank {rank}'
+            cmds.append(cmd)
+    if run:
+        utils.gpu_scheduler(commands=cmds)
+    return cmds
+
+
 # python -m table2text.launchers.gpt2_052222 --task retrain
+# python -m table2text.launchers.gpt2_052222 --task retrain2
 def main(task):
     utils.runs_tasks(
         task=task,
-        task_names=("dump_grads", "get_bases", "dump_and_pca", "retrain"),
-        task_callables=(dump_grads, get_bases, dump_and_pca, retrain)
+        task_names=("dump_grads", "get_bases", "dump_and_pca", "retrain", "retrain2"),
+        task_callables=(dump_grads, get_bases, dump_and_pca, retrain, retrain2)
     )
 
 
