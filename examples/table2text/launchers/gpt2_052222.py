@@ -65,6 +65,7 @@ def retrain(seeds=(42, 9008, 0), run=True, global_step=10):
     return cmds
 
 
+# python -m table2text.launchers.gpt2_052222 --task retrain
 def main(task):
     utils.runs_tasks(
         task=task,
