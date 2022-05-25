@@ -9,7 +9,7 @@ import torch
 from .. import density
 
 
-def plot_helper(
+def plot_spectrum(
     dump_dir="./table2text/plots",
     ckpt_path=f"/Users/xuechenli/Desktop/dump_a100/privlm2/gpt2/e2e/orthproj_42/eigenvalues/global_step_{10:06d}.evals",
     k=500,
@@ -60,8 +60,38 @@ def plot_helper(
     )
 
 
+def plot_retrain():
+    base_dir = "/Users/xuechenli/Desktop/dump_a100/privlm2"
+
+    errorbars = []
+    for rank, marker in utils.zip_((10, 50, 100, 500, None), ('x', '+', 'o', 'v', '^')):
+        x = []
+        y = []
+        for seed in (42, 9008, 0):
+            path = utils.join(base_dir, f"gpt2_retrain_{rank}_{seed}", "e2e", "log_history.json")
+            record = utils.jload(path)
+            x.append([recordi['epoch'] for recordi in record])
+            y.append([recordi['eval']['model']['tok_logprobs'] for recordi in record])
+        x = np.array(x)
+        y = np.array(y)
+
+        label = "original" if rank is None else f"{rank}"
+        errorbars.append(
+            dict(x=np.mean(x, axis=0), y=np.mean(y, axis=0), yerr=np.std(y, axis=0), label=label, marker=marker)
+        )
+
+    img_path = "./table2text/plots/retrain"
+    utils.plot_wrapper(
+        img_path=img_path,
+        suffixes=('.png', '.pdf'),
+        errorbars=errorbars,
+        options=dict(xlabel="epoch", ylabel="Per-token NLL"),
+    )
+
+
 def make_suppl_plots():
-    plot_helper()
+    plot_spectrum()
+    plot_retrain()
 
 
 # TODO: Merge plotter.

@@ -65,10 +65,10 @@ def retrain(seeds=(42, 9008, 0), run=True, global_step=10):
     return cmds
 
 
-def retrain2(seeds=(42, 9008, 0), run=True, global_step=10):
+def retrain2(seeds=(42,), run=True, global_step=10):
     cmds = []
     for seed in seeds:
-        for rank in (200, 500):
+        for rank in (200,):
             output_dir = f"/mnt/disks/disk-2/dump/privlm2/gpt2_retrain_{rank}_{seed}/e2e"
             cmd = f'''python -m table2text.launchers.e2e_run_wrapper \
                 --model_name_or_path "distilgpt2" \
