@@ -6,15 +6,14 @@ import scipy.stats
 from swissknife import utils
 import torch
 
-from ..spectrum import density
+from .. import density
 
 
 def plot_helper(
-    dump_dir="./classification/plots",
-    ckpt_path=f"/Users/xuechenli/Desktop/dump_a100/privlm2/roberta_prompt/sst-2/orthproj_9009/eigenvalues"
-              f"/global_step_{50:06d}.evals",
+    dump_dir="./table2text/plot2",
+    ckpt_path=f"/Users/xuechenli/Desktop/dump_a100/privlm2/gpt2/e2e/orthproj_42/eigenvalues/global_step_{10:06d}.evals",
     k=500,
-    batch_size=1000,
+    batch_size=1024,  # What's actually used in training.
 ):
     state_dicts = torch.load(ckpt_path)
     eigenvalues = state_dicts["eigenvalues"]
@@ -62,32 +61,11 @@ def plot_helper(
 
 
 def make_suppl_plots():
-    base_dir = "/Users/xuechenli/Desktop/dump_a100/privlm2/roberta_prompt/sst-2"
-
-    ckpt_path = f"{base_dir}/orthproj_42_0/eigenvalues/global_step_{10:06d}.evals"
-    dump_dir = f"./classification/plots/less_samples_no_trim_front"
-    plot_helper(dump_dir=dump_dir, ckpt_path=ckpt_path)
-
-    # Less samples with head truncation.
-    ckpt_path = f"{base_dir}/orthproj_42_300/eigenvalues/global_step_{10:06d}.evals"
-    dump_dir = f"./classification/plots/less_samples_trim_front"
-    plot_helper(dump_dir=dump_dir, ckpt_path=ckpt_path)
-
-    # More samples.
-    ckpt_path = f"{base_dir}/orthproj_9009/eigenvalues/global_step_{10:06d}.evals"
-    dump_dir = f"./classification/plots/npi_{10:06d}"
-    plot_helper(dump_dir=dump_dir, ckpt_path=ckpt_path)
-
-    ckpt_path = f"{base_dir}/orthproj_9009/eigenvalues/global_step_{50:06d}.evals"
-    dump_dir = f"./classification/plots/npi_{50:06d}"
-    plot_helper(dump_dir=dump_dir, ckpt_path=ckpt_path)
-
-    ckpt_path = f"{base_dir}/orthproj_9009/eigenvalues/global_step_{100:06d}.evals"
-    dump_dir = f"./classification/plots/npi_{100:06d}"
-    plot_helper(dump_dir=dump_dir, ckpt_path=ckpt_path)
+    plot_helper()
 
 
-# python -m classification.plots.roberta_052222
+# TODO: Merge plotter.
+# python -m table2text.plots.gpt2_052222
 def main(task="make_suppl_plots", **kwargs):
     utils.runs_tasks(
         task=task,
