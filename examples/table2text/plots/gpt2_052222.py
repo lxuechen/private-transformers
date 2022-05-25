@@ -10,7 +10,7 @@ from .. import density
 
 
 def plot_helper(
-    dump_dir="./table2text/plot2",
+    dump_dir="./table2text/plots",
     ckpt_path=f"/Users/xuechenli/Desktop/dump_a100/privlm2/gpt2/e2e/orthproj_42/eigenvalues/global_step_{10:06d}.evals",
     k=500,
     batch_size=1024,  # What's actually used in training.
