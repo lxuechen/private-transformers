@@ -87,11 +87,12 @@ def retrain2(seeds=(42,), run=True, global_step=10):
 
 # python -m table2text.launchers.gpt2_052222 --task retrain
 # python -m table2text.launchers.gpt2_052222 --task retrain2
-def main(task):
+def main(task, **kwargs):
     utils.runs_tasks(
         task=task,
         task_names=("dump_grads", "get_bases", "dump_and_pca", "retrain", "retrain2"),
-        task_callables=(dump_grads, get_bases, dump_and_pca, retrain, retrain2)
+        task_callables=(dump_grads, get_bases, dump_and_pca, retrain, retrain2),
+        **kwargs
     )
 
 
