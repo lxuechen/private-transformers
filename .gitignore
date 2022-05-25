@@ -131,3 +131,6 @@ dmypy.json
 .idea/
 .DS_Store
 
+# Ignore figures and plots when uploading to github.
+**.png
+**.pdf
