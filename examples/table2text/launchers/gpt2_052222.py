@@ -45,7 +45,7 @@ def dump_and_pca():
     utils.gpu_scheduler(commands=cmds)
 
 
-def retrain(seeds=(42, 9008, 0), run=True, global_step=50):
+def retrain(seeds=(42, 9008, 0), run=True, global_step=10):
     cmds = []
     for seed in seeds:
         for rank in (10, 20, 50, 100, None):
@@ -57,7 +57,7 @@ def retrain(seeds=(42, 9008, 0), run=True, global_step=50):
                 --max_generations 50000'''
             if rank is not None:
                 cmd += f' --orthogonal_projection_path ' \
-                       f'"/mnt/disks/disk-2/dump/privlm/gpt2/e2e/orthproj/global_step_{global_step:06d}.pt"'
+                       f'"/mnt/disks/disk-2/dump/privlm/gpt2/e2e/orthproj_42/all/global_step_{global_step:06d}.pt"'
                 cmd += f' --orthogonal_projection_rank {rank}'
             cmds.append(cmd)
     if run:
@@ -68,8 +68,8 @@ def retrain(seeds=(42, 9008, 0), run=True, global_step=50):
 def main(task):
     utils.runs_tasks(
         task=task,
-        task_names=("dump_grads", "get_bases", "dump_and_pca"),
-        task_callables=(dump_grads, get_bases, dump_and_pca)
+        task_names=("dump_grads", "get_bases", "dump_and_pca", "retrain"),
+        task_callables=(dump_grads, get_bases, dump_and_pca, retrain)
     )
 
 
