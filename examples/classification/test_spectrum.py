@@ -1,4 +1,4 @@
-from swissknife import utils
+from ml_swissknife import utils
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader

@@ -2,7 +2,7 @@ import logging
 from typing import Callable
 
 import fire
-from swissknife import utils
+from ml_swissknife import utils
 import torch.cuda
 import torch.nn.functional as F
 from torch.utils.data import DataLoader

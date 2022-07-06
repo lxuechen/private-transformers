@@ -23,7 +23,7 @@ import os
 from typing import Dict, Optional, Any, Union
 
 from packaging import version
-from swissknife import utils
+from ml_swissknife import utils
 import torch
 from torch import nn
 import torch.nn.functional as F

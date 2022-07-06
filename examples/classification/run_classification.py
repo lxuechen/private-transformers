@@ -13,7 +13,7 @@ from typing import Callable, Dict, Optional
 
 from filelock import FileLock
 import numpy as np
-from swissknife import utils
+from ml_swissknife import utils
 import torch
 from transformers import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer, EvalPrediction
 from transformers import GlueDataTrainingArguments as DataTrainingArguments
