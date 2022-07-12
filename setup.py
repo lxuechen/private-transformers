@@ -32,6 +32,7 @@ setuptools.setup(
         "scipy",
         "jupyterlab",
         "jupyter",
+        "ml-swissknife"
     ],
     python_requires='~=3.8',
     classifiers=[
