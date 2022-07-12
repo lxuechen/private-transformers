@@ -4,7 +4,7 @@ python -m classification.data.make_k_shot_without_dev
 """
 import os
 
-from swissknife import utils
+from ml_swissknife import utils
 
 join = os.path.join
 

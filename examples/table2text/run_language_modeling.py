@@ -23,17 +23,16 @@ import json
 import logging
 import os
 
-from swissknife import utils
 import torch
-from transformers import MODEL_WITH_LM_HEAD_MAPPING, HfArgumentParser, set_seed
+from ml_swissknife import utils
+from transformers import HfArgumentParser, MODEL_WITH_LM_HEAD_MAPPING, set_seed
 from transformers.models.gpt2 import GPT2Tokenizer
 from transformers.optimization import get_linear_schedule_with_warmup
 
 from private_transformers import PrivacyEngine
-from .compiled_args import (
-    DataTrainingArguments, ModelArguments, PrivacyArguments, TrainingArguments, AuxiliaryArguments
-)
-from .misc import get_prompt_dataset, get_all_datasets
+from .compiled_args import (AuxiliaryArguments, DataTrainingArguments, ModelArguments, PrivacyArguments,
+                            TrainingArguments)
+from .misc import get_all_datasets, get_prompt_dataset
 from .trainer import Trainer
 
 logger = logging.getLogger(__name__)

@@ -1,15 +1,13 @@
 import logging
-from typing import Callable, Sequence, Union, Optional
+from typing import Callable, Optional, Sequence, Union
 
 import fire
-import numpy as np
-from swissknife import utils
-from torch import nn
 import torch.cuda
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
 import tqdm
 import transformers
+from ml_swissknife import utils
+from torch.utils.data import DataLoader
 from transformers.data.data_collator import default_data_collator
 
 from . import lanczos

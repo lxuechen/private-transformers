@@ -74,6 +74,6 @@ typing-extensions==3.7.4.3
 urllib3==1.26.*
 watchdog==0.10.3
 websocket-client==1.0.1
-git+https://github.com/lxuechen/swissknife.git
+ml_swissknife
 gpytorch
 jupyterlab
