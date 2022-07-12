@@ -8,10 +8,10 @@ import math
 from typing import Optional, Tuple
 
 import fire
-from swissknife import utils
 import torch
-from torch.utils.data import TensorDataset, DataLoader
 import tqdm
+from ml_swissknife import utils
+from torch.utils.data import DataLoader, TensorDataset
 
 
 def load_data(ckpts_dir, num_ckpts, start_index, batch_size):
