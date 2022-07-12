@@ -30,7 +30,8 @@ from transformers.models.gpt2 import GPT2Tokenizer
 from transformers.optimization import get_linear_schedule_with_warmup
 
 from private_transformers import PrivacyEngine
-from .compiled_args import DataTrainingArguments, ModelArguments, PrivacyArguments, TrainingArguments
+from .compiled_args import (AuxiliaryArguments, DataTrainingArguments, ModelArguments, PrivacyArguments,
+                            TrainingArguments)
 from .misc import get_all_datasets, get_prompt_dataset
 from .trainer import Trainer
 
@@ -41,13 +42,16 @@ MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 
 
 def main():
-    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments, PrivacyArguments))
-    model_args, data_args, training_args, privacy_args = parser.parse_args_into_dataclasses()
+    parser = HfArgumentParser(
+        (ModelArguments, DataTrainingArguments, TrainingArguments, PrivacyArguments, AuxiliaryArguments)
+    )
+    model_args, data_args, training_args, privacy_args, auxiliary_args = parser.parse_args_into_dataclasses()
 
     model_args: ModelArguments
     data_args: DataTrainingArguments
     training_args: TrainingArguments
     privacy_args: PrivacyArguments
+    auxiliary_args: AuxiliaryArguments
 
     if data_args.eval_data_file is None and training_args.do_eval:
         raise ValueError(
@@ -184,6 +188,7 @@ def main():
         model_args=model_args,
         data_args=data_args,
         privacy_args=privacy_args,
+        auxiliary_args=auxiliary_args,
         train_dataset=train_dataset,
         val_dataset=val_dataset,
         eval_dataset=eval_dataset,
@@ -192,12 +197,18 @@ def main():
     )
 
     # Massage the parameters.
-    model.requires_grad_(True)
-    if model_args.static_lm_head:
-        model.get_output_embeddings().requires_grad_(False)
-    if model_args.static_embedding:
-        model.get_input_embeddings().requires_grad_(False)
-        model.transformer.wpe.requires_grad_(False)
+    if model_args.attention_only:
+        model.requires_grad_(False)
+        for name, param in model.named_parameters():
+            if 'c_attn.weight' in name:
+                param.requires_grad_(True)
+    else:
+        model.requires_grad_(True)
+        if model_args.static_lm_head:
+            model.get_output_embeddings().requires_grad_(False)
+        if model_args.static_embedding:
+            model.get_input_embeddings().requires_grad_(False)
+            model.transformer.wpe.requires_grad_(False)
     params = tuple(param for param in model.parameters() if param.requires_grad)
     names = tuple(name for name, param in model.named_parameters() if param.requires_grad)
     num_trainable_params = sum(param.numel() for param in params)
@@ -237,7 +248,6 @@ def main():
             module=model,
             batch_size=actual_batch_size,
             sample_size=len(train_dataset),
-            gradient_accumulation_steps=training_args.gradient_accumulation_steps,
             epochs=training_args.num_train_epochs,
             max_grad_norm=privacy_args.per_example_max_grad_norm,
             noise_multiplier=privacy_args.noise_multiplier,

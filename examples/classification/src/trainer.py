@@ -18,6 +18,7 @@
 The Trainer class, to easily train a 🤗 Transformers from scratch or finetune it on a new task.
 """
 import collections
+import gc
 import json
 import os
 from typing import Dict, Optional, Any, Union
@@ -40,6 +41,7 @@ from transformers.integrations import (
     is_tensorboard_available,
     is_wandb_available,
 )
+from transformers.modeling_outputs import SequenceClassifierOutput
 from transformers.optimization import AdamW, get_linear_schedule_with_warmup
 from transformers.trainer_callback import (
     DefaultFlowCallback,
@@ -154,13 +156,12 @@ class Trainer(transformers.Trainer):
     Adding some functions based on Transformers' Trainer class.
     """
 
-    def __init__(self, model_args=None, privacy_args=None, **kwargs):
+    def __init__(self, model_args=None, privacy_args=None, auxiliary_args=None, **kwargs):
         super(Trainer, self).__init__(**kwargs)
         self.privacy_args = privacy_args
         self.model_args = model_args
-        # --- lxuechen: Heuristic initialization.
+        self.auxiliary_args = auxiliary_args
         self.scaler = torch.cuda.amp.GradScaler(init_scale=128)
-        # ---
 
     # --- lxuechen: Not sure why v4.10.0 removed this function...
     def is_local_master(self) -> bool:
@@ -338,7 +339,6 @@ class Trainer(transformers.Trainer):
                 steps_trained_in_current_epoch = self.global_step % (
                     len(train_dataloader) // self.args.gradient_accumulation_steps
                 )
-
                 logger.info("  Continuing training from checkpoint, will skip to saved global_step")
                 logger.info("  Continuing training from epoch %d", epochs_trained)
                 logger.info("  Continuing training from global step %d", self.global_step)
@@ -350,6 +350,27 @@ class Trainer(transformers.Trainer):
         tr_loss = torch.tensor(0.0).to(self.args.device)
         logging_loss_scalar = 0.0
 
+        # --- low rank analysis project ---
+        orthogonal_projection_path = self.auxiliary_args.orthogonal_projection_path
+        if orthogonal_projection_path is None:
+            orthogonal_projection = None
+        else:
+            # Kept on CPU during most of the time of training.
+            state_dicts = torch.load(orthogonal_projection_path)
+            orthogonal_projection = state_dicts.get("eigenvectors")[:, :self.auxiliary_args.orthogonal_projection_rank]
+
+        if self.auxiliary_args.store_grads:
+            store_grads_dir = utils.join(self.args.output_dir, 'grad_trajectory')
+            utils.makedirs(store_grads_dir, exist_ok=True)
+        else:
+            store_grads_dir = None
+        # ---
+
+        # --- in case no training happens ---
+        epoch = 0
+        metrics = None
+        # ---
+
         if self.args.evaluate_before_training:
             logging_loss_scalar = self.evaluate_and_log(
                 tr_loss=tr_loss,
@@ -357,17 +378,12 @@ class Trainer(transformers.Trainer):
                 scheduler=scheduler,
             )
 
-        # --- lxuechen: In case no training happens.
-        epoch = 0
-        metrics = None
-        # ---
-
         train_iterator = trange(epochs_trained, int(num_train_epochs), desc="Epoch", disable=not self.is_local_master())
         for epoch in train_iterator:
-            # --- Clear gradient before entering a new epochs. ---
-            #   This is ultra important when using gradient accumulation, since grads of micro batches could ooze.
+            # Clear gradient before entering a new epochs.
+            # This is ultra important when using gradient accumulation in privacy training;
+            # grads of micro batches could ooze.
             model.zero_grad(set_to_none=True)
-            # ---
 
             if isinstance(train_dataloader, DataLoader) and isinstance(train_dataloader.sampler, DistributedSampler):
                 train_dataloader.sampler.set_epoch(epoch)
@@ -379,10 +395,6 @@ class Trainer(transformers.Trainer):
                 epoch_iterator = tqdm(parallel_loader, desc="Iteration", disable=not self.is_local_master())
             else:
                 epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=False)
-
-            # Reset the past mems state at the beginning of each epoch if necessary.
-            if self.args.past_index >= 0:
-                self._past = None
 
             for step, inputs in enumerate(epoch_iterator):
 
@@ -407,16 +419,22 @@ class Trainer(transformers.Trainer):
                         torch.nn.utils.clip_grad_norm_(model.parameters(), self.args.max_grad_norm)
                         optimizer.step()
                     else:
-                        self.optimizer.step(loss=losses.get("vector_loss"))
+                        if store_grads_dir is None:
+                            store_grads_path = None
+                        else:
+                            store_grads_path = utils.join(store_grads_dir, f'global_step_{self.global_step:06d}.ckpt')
+
+                        vector_loss = losses.get("vector_loss")
+                        self.optimizer.step(
+                            loss=vector_loss,
+                            orthogonal_projection=orthogonal_projection,
+                            store_grads_path=store_grads_path,
+                        )
 
                     scheduler.step()
                     model.zero_grad(set_to_none=True)
                     self.global_step += 1
                     self.epoch = epoch + (step + 1) / len(epoch_iterator)
-
-                    # ----------------------------------------------------------------------
-                    # BEGIN CHANGES.
-                    # ----------------------------------------------------------------------
 
                     metrics = None
                     if (
@@ -428,14 +446,9 @@ class Trainer(transformers.Trainer):
                             logging_loss_scalar=logging_loss_scalar,
                             scheduler=scheduler,
                         )
-
-                    # ----------------------------------------------------------------------
-                    # END CHANGES.
-                    # ----------------------------------------------------------------------
-
                 else:
                     if not self.privacy_args.non_private:
-                        self.optimizer.virtual_step(loss=losses.get("vector_loss"))
+                        self.optimizer.virtual_step(loss=losses.get("vector_loss"))  # noqa
 
                 if 0 < self.args.max_steps < self.global_step:
                     epoch_iterator.close()
@@ -456,10 +469,6 @@ class Trainer(transformers.Trainer):
                 # tpu-comment: Logging debug metrics for PyTorch/XLA (compile, execute times, ops, etc.)
                 xm.master_print(met.metrics_report())
 
-        if self.args.past_index and hasattr(self, "_past"):
-            # Clean the state at the end of training
-            delattr(self, "_past")
-
         if self.args.evaluate_after_training:
             logger.info("Evaluate after training ends.")
             self.evaluate_and_log(
@@ -478,17 +487,13 @@ class Trainer(transformers.Trainer):
         Subclass and override for custom behavior.
         """
         labels = inputs.pop("labels")
-        outputs = model(**inputs)
-        logits, = outputs  # Unpack.
+        outputs = model(**inputs)  # This should not contain `loss`.
+        logits = outputs[0]
+        if isinstance(outputs, SequenceClassifierOutput):
+            outputs = (logits,)
         loss = F.cross_entropy(logits, labels, reduction="none")  # (batch_size,).
         if not return_vector_loss:
             loss = loss.mean(dim=0)
-
-        # Save past state if it exists
-        # TODO: this needs to be fixed and made cleaner later.
-        if self.args.past_index >= 0:
-            self._past = outputs[self.args.past_index]
-
         return (loss, (loss,) + outputs) if return_outputs else loss
 
     def training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> dict:
@@ -590,6 +595,71 @@ class Trainer(transformers.Trainer):
 
         # Write to disk!
         utils.jdump(self.log_history, os.path.join(self.args.output_dir, 'log_history.json'))
+        # ---
+
+        # ---
+        # Evaluate gradient covariance spectrum for the dimension-dependence analysis project.
+        if self.auxiliary_args.eval_spectrum:
+            from ..spectrum import spectrum_utils
+
+            def loss_fn(batch, model):
+                batch = self._prepare_inputs(inputs=batch)
+                return self.compute_loss(
+                    model=model, inputs=batch, return_outputs=False, return_vector_loss=True
+                )
+
+            default_dtype = torch.get_default_dtype()
+            torch.set_default_dtype(torch.float64)  # Slow but accurate.
+            self.model.to(dtype=torch.float64)
+
+            spectrum_loader = DataLoader(
+                self.train_dataset,
+                batch_size=self.args.train_batch_size,
+                shuffle=False,  # Must not shuffle.
+                collate_fn=self.data_collator,
+                drop_last=self.args.dataloader_drop_last,
+                num_workers=self.args.dataloader_num_workers,
+                pin_memory=self.args.dataloader_pin_memory,
+            )
+
+            # No per-sample grads accumulated here, since `model.eval()` called internally.
+            spectrum_outputs = spectrum_utils.make_spectrum_lanczos(
+                loader=spectrum_loader,
+                model=self.model,
+                max_batches=self.auxiliary_args.max_spectrum_batches,
+                max_lanczos_iter=self.auxiliary_args.max_lanczos_iter,
+                loss_fn=loss_fn,
+                return_dict=True,
+                verbose=True,
+            )
+
+            state_dicts = {
+                key: value.cpu().float() if torch.is_tensor(value) else value
+                for key, value in spectrum_outputs.items()
+            }
+            utils.tsave(
+                state_dicts,
+                utils.join(self.args.output_dir, 'spectrum', f'global_step_{self.global_step:06d}.pt')
+            )
+
+            torch.set_default_dtype(default_dtype)
+            self.model.to(dtype=default_dtype)
+
+            del spectrum_outputs, state_dicts
+            gc.collect()
+            torch.cuda.empty_cache()
+        # ---
+
+        # ---
+        # Store grad params.
+        state_dicts = dict()
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                state_dicts[name] = param.data.cpu().float()
+        utils.tsave(
+            state_dicts,
+            utils.join(self.args.output_dir, 'grad_params', f'global_step_{self.global_step:06d}.pt')
+        )
         # ---
 
         return logging_loss_scalar

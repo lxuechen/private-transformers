@@ -184,8 +184,8 @@ class RobertaForPromptFinetuning(BertPreTrainedModel):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.roberta = RobertaModel(config, add_pooling_layer=add_pooling_layer)
-        # lxuechen: The name of this variable must be `.lm_head`! Otherwise, error in loading
-        # and you implicitly get random weights!!!
+        # lxuechen: The name of this variable must be `.lm_head`! Otherwise, error in loading,
+        #   and you implicitly get random weights!!!
         self.lm_head = RobertaLMHead(config)
         self.init_weights()
 
@@ -219,7 +219,7 @@ class RobertaForPromptFinetuning(BertPreTrainedModel):
             labels: (batch_size,).
 
         Returns:
-            tuple/dict of loss and logits.
+            tuple of logits (and maybe loss).
         """
         batch_size = input_ids.size(0)
 
@@ -249,7 +249,6 @@ class RobertaForPromptFinetuning(BertPreTrainedModel):
             return prediction_mask_scores
 
         # Return logits for each label
-        # --- lxuechen: This is only slow for large number of labels.
         logits = []
         for label_id in range(len(self.label_word_list)):
             logits.append(prediction_mask_scores[:, self.label_word_list[label_id]].unsqueeze(-1))

@@ -1,11 +1,11 @@
 """Finetuning the library models for sequence classification on GLUE."""
 
-import os
-
 import collections
+import copy
 import dataclasses
 from dataclasses import dataclass, field
 from datetime import datetime
+import gc
 import json
 import logging
 import os
@@ -21,7 +21,8 @@ from transformers import GlueDataset
 from transformers import HfArgumentParser, set_seed
 
 from private_transformers import PrivacyEngine
-from .src.compiled_args import PrivacyArguments, TrainingArguments
+from .src.common import true_tags
+from .src.compiled_args import PrivacyArguments, TrainingArguments, AuxiliaryArguments
 from .src.dataset import FewShotDataset
 from .src.models import (
     BertForPromptFinetuning, RobertaForPromptFinetuning, AlbertForPromptFinetuning, DistilBertForPromptFinetuning,
@@ -67,7 +68,26 @@ class ModelArguments:
         metadata={"help": "Whether to reinitialize the token type embeddings (only for BERT)."}
     )
 
-    static_embedding: bool = field(default=False)
+    static_embedding: str = field(
+        default="no"
+    )
+    static_lm_head: str = field(
+        default="no"
+    )
+    attention_only: str = field(
+        default="no"
+    )
+
+    randomly_initialize: str = field(
+        default="no",
+        metadata={"help": "Randomly initialize the model; useful only for ablation studies."}
+    )
+
+    def __post_init__(self):
+        self.static_embedding = self.static_embedding.lower() in true_tags  # noqa
+        self.static_lm_head = self.static_lm_head.lower() in true_tags  # noqa
+        self.attention_only = self.attention_only.lower() in true_tags  # noqa
+        self.randomly_initialize = self.randomly_initialize.lower() in true_tags  # noqa
 
 
 @dataclass
@@ -225,14 +245,12 @@ class DynamicDataTrainingArguments(DataTrainingArguments):
         metadata={"help": "(DO NOT List of templates (only initialized after the program starts."}
     )
 
-    # --- lxuechen: For privacy.
     inference_time_demo: bool = field(
         default=False,
         metadata={"help": "Do not use demonstrations during inference time; "
                           "the original paper attaches to each test example a few training examples as demo -- "
                           "apparently this breaks privacy. We turn this off by default here."}
     )
-    # ---
 
 
 @dataclass
@@ -290,9 +308,9 @@ class DynamicTrainingArguments(TrainingArguments):
 
 def main():
     parser = HfArgumentParser(
-        (ModelArguments, DynamicDataTrainingArguments, DynamicTrainingArguments, PrivacyArguments)
+        (ModelArguments, DynamicDataTrainingArguments, DynamicTrainingArguments, PrivacyArguments, AuxiliaryArguments)
     )
-    model_args, data_args, training_args, privacy_args = parser.parse_args_into_dataclasses()
+    model_args, data_args, training_args, privacy_args, auxiliary_args = parser.parse_args_into_dataclasses()
 
     if not os.path.exists(training_args.output_dir):
         print(f"output_dir doesn't exists, mkdir now: {training_args.output_dir}")
@@ -550,12 +568,39 @@ def main():
     print(" | model type: ")
     print(type(model))
 
-    model.requires_grad_(True)
-    if model_args.static_embedding:
-        model.get_input_embeddings().requires_grad_(False)
+    if model_args.attention_only:
+        model.requires_grad_(False)
+        for name, param in model.named_parameters():
+            if 'query' in name or 'value' in name or 'classifier' in name or 'lm_head' in name:
+                param.requires_grad_(True)
+        if model_args.static_lm_head and hasattr(model, 'lm_head'):
+            model.lm_head.requires_grad_(False)
+    else:
+        model.requires_grad_(True)
+        if model_args.static_embedding:
+            model.get_input_embeddings().requires_grad_(False)
+
+    if model_args.randomly_initialize:
+        # Only reinit the params which require gradients.
+        model_old = copy.deepcopy(model)  # Copy pretrained model.
+        model.init_weights()
+
+        params = tuple(model.parameters())
+        params_old = tuple(model_old.parameters())
+        for param, param_old in utils.zip_(params, params_old):
+            if not param.requires_grad:
+                param.data.copy_(param_old.data)
+
+        del model_old
+        gc.collect()
+        torch.cuda.empty_cache()
+    print(f"attention_only: {model_args.attention_only} | randomly_initialize: {model_args.randomly_initialize}")
+
     named_params = [(name, param) for name, param in model.named_parameters() if param.requires_grad]
     print('Params to update: ')
     print(json.dumps([name for name, param in named_params], indent=4))
+    num_differentiable_params = utils.count_parameters(model, only_differentiable=True)
+    print(f'Number of differentiable params: {num_differentiable_params / 1e6:.3f} million')
 
     # For BERT, increase the size of the segment (token type) embeddings
     if config.model_type == 'bert':
@@ -607,11 +652,11 @@ def main():
         args=training_args,
         model_args=model_args,
         privacy_args=privacy_args,
+        auxiliary_args=auxiliary_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         compute_metrics=build_compute_metrics_fn(data_args.task_name)
     )
-    # lxuechen: RGP -- Manually select the parameters to update.
     no_decay = ['bias', 'LayerNorm.weight']
     optimizer_grouped_parameters = [
         {'params': [p for n, p in named_params if not any(nd in n for nd in no_decay)],
@@ -633,7 +678,6 @@ def main():
         trainer.lr_scheduler = torch.optim.lr_scheduler.LambdaLR(trainer.optimizer, lambda _: 1.)
 
     if privacy_args.non_private:
-        # lxuechen: Needed for RGP.
         privacy_args.noise_multiplier = 0.
         privacy_args.per_example_max_grad_norm = None
     else:

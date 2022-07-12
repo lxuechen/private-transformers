@@ -5,9 +5,11 @@ from torch.utils.data import DataLoader
 import transformers
 from transformers.data.data_collator import default_data_collator
 
-from . import common, spectrum, density
-from .common import device
-from .run_classification import DynamicDataTrainingArguments
+from . import density
+from . import spectrum_utils
+from ..run_classification import DynamicDataTrainingArguments
+from ..src import common
+from ..src.common import device
 
 
 def make_test_model():
@@ -46,6 +48,7 @@ def make_loss_fn(scale=1.):
     """
 
     def loss_fn(batch, model):
+        device = next(iter(model.parameters())).device
         batch = {key: value.to(device) for key, value in batch.items()}
         logits = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"])
         losses = F.cross_entropy(logits.logits, batch["labels"], reduction="none") * scale
@@ -102,7 +105,7 @@ def test_make_spectrum_lanczos(
     )
 
     loss_fn = make_loss_fn(scale=scale)
-    lanczos_outputs = spectrum.make_spectrum_lanczos(
+    lanczos_outputs = spectrum_utils.make_spectrum_lanczos(
         model=model,
         loader=train_loader,
         max_batches=max_batches,
@@ -111,7 +114,7 @@ def test_make_spectrum_lanczos(
         loss_fn=loss_fn,
         return_dict=True,
     )
-    exact_eigenvals = spectrum.make_spectrum_exact(
+    exact_eigenvals = spectrum_utils.make_spectrum_exact(
         model=model,
         loader=train_loader_singleton,
         max_batches=n_total,
@@ -143,5 +146,5 @@ def test_make_spectrum_lanczos(
 
 
 if __name__ == "__main__":
-    # python -m classification.test_spectrum
+    # python -m classification.spectrum.test_spectrum
     test_make_spectrum_lanczos()

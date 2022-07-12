@@ -190,6 +190,7 @@ def _capture_activations(layer: nn.Module, inputs: Tuple[torch.Tensor], outputs:
 
     if _hooks_disabled:
         return
+
     if get_layer_type(layer) not in _supported_layers_grad_samplers.keys():
         raise ValueError("Hook installed on unsupported layer")
 
@@ -207,9 +208,6 @@ def _capture_backprops(
     batch_first: bool,
 ):
     """Backward hook handler captures grad_outputs."""
-    if _hooks_disabled:
-        return
-
     backprops = outputs[0].detach()
     _compute_grad_sample(layer, backprops, loss_reduction, batch_first)
 
@@ -222,6 +220,9 @@ def _compute_grad_sample(layer: nn.Module, backprops: torch.Tensor, loss_reducti
         or layer_type not in _supported_layers_grad_samplers.keys()
         or not layer.training
     ):
+        return
+
+    if _hooks_disabled:
         return
 
     if not hasattr(layer, "activations"):

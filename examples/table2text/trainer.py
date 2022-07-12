@@ -31,7 +31,8 @@ from transformers.trainer_utils import (EvalPrediction, EvaluationStrategy, Inte
 from transformers.utils import logging
 
 from . import decoding_utils
-from .compiled_args import DataTrainingArguments, ModelArguments, PrivacyArguments, TrainingArguments
+from .compiled_args import (AuxiliaryArguments, DataTrainingArguments, ModelArguments, PrivacyArguments,
+                            TrainingArguments)
 
 logger = logging.get_logger(__name__)
 
@@ -83,6 +84,7 @@ class Trainer:
         model_args: Optional[ModelArguments] = None,
         data_args: Optional[DataTrainingArguments] = None,
         privacy_args: Optional[PrivacyArguments] = None,
+        auxiliary_args: Optional[AuxiliaryArguments] = None,
         data_collator: Optional[DataCollator] = None,
         train_dataset: Optional[Dataset] = None,
         eval_dataset: Optional[Dataset] = None,
@@ -102,6 +104,7 @@ class Trainer:
         self.model_args = model_args
         self.data_args = data_args
         self.privacy_args = privacy_args
+        self.auxiliary_args = auxiliary_args
 
         # Seed must be set before instantiating the model when using model
         set_seed(self.args.seed)
@@ -368,6 +371,22 @@ class Trainer:
         if self.args.evaluate_before_training:
             self.evaluate(epoch=0)  # No need to report to hp search.
 
+        # --- low rank analysis project ---
+        orthogonal_projection_path = self.auxiliary_args.orthogonal_projection_path
+        if orthogonal_projection_path is None:
+            orthogonal_projection = None
+        else:
+            # Kept on CPU during most of the time of training.
+            state_dicts = torch.load(orthogonal_projection_path)
+            orthogonal_projection = state_dicts.get("eigenvectors")[:, :self.auxiliary_args.orthogonal_projection_rank]
+
+        if self.auxiliary_args.store_grads:
+            store_grads_dir = utils.join(self.args.output_dir, 'grad_trajectory')
+            utils.makedirs(store_grads_dir, exist_ok=True)
+        else:
+            store_grads_dir = None
+        # ---
+
         # Train!
         total_train_batch_size = (
             self.args.train_batch_size
@@ -451,7 +470,17 @@ class Trainer:
                         torch.nn.utils.clip_grad_norm_(model.parameters(), self.args.max_grad_norm)
                         self.optimizer.step()
                     else:
-                        self.optimizer.step(loss=losses.get("vector_loss"))
+                        if store_grads_dir is None:
+                            store_grads_path = None
+                        else:
+                            store_grads_path = utils.join(store_grads_dir, f'global_step_{self.global_step:06d}.ckpt')
+
+                        vector_loss = losses.get("vector_loss")
+                        self.optimizer.step(
+                            loss=vector_loss,
+                            orthogonal_projection=orthogonal_projection,
+                            store_grads_path=store_grads_path,
+                        )
 
                     self.lr_scheduler.step()
                     model.zero_grad(set_to_none=True)

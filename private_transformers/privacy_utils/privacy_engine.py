@@ -13,11 +13,10 @@ from typing import Callable, Dict, Optional, Sequence, Union
 
 import numpy as np
 import torch
+from ml_swissknife import utils
 from torch import nn
 
-from . import autograd_grad_sample
-from . import misc
-from . import transformers_support
+from . import autograd_grad_sample, misc, transformers_support
 from .accounting import gdp_accounting, rdp_accounting
 
 DEFAULT_ALPHAS = tuple(1 + x / 10.0 for x in range(1, 100)) + tuple(range(12, 64))
@@ -62,7 +61,7 @@ class PrivacyEngine(object):
             module: The PyTorch module for which per-sample gradient is required.
                 Setting the `requires_grad` attribute of a parameter to False
                 disables the per-sample gradient accumulation.
-            batch_size: The expected lot size.
+            batch_size: The lot size.
             sample_size: Size of dataset.
             max_grad_norm: The maximum 2-norm for gradient clipping.
             epochs: The number of epochs for training.
@@ -247,7 +246,7 @@ class PrivacyEngine(object):
         module = self.module
         autograd_grad_sample.remove_hooks(module)
         autograd_grad_sample.set_hooks_mode("default")  # This is super important when there are multiple attaches!
-        module.zero_grad(skip_grad=True)
+        module.zero_grad(skip_grad=True)  # noqa
         module.zero_grad = module.original_zero_grad
         delattr(module, "original_zero_grad")
 
@@ -351,31 +350,55 @@ class PrivacyEngine(object):
     # ---------------------------------------------
 
     @torch.no_grad()
-    def step(self, scale=1, **kwargs):
-        """Step function.
-
-        `loss` must be passed in as a keyword argument!
-        """
+    def step(
+        self,
+        loss: torch.Tensor,
+        scale=1.,
+        store_grads_path: Optional[str] = None,
+        orthogonal_projection: Optional[torch.Tensor] = None
+    ):
+        """Step function."""
         if self.ghost_clipping:
-            self._ghost_step(loss=kwargs.pop("loss"))
+            # TODO: Orthogonal projection not supported in ghost clipping.
+            self._ghost_step(loss=loss)
         else:
-            self._step(loss=kwargs.pop("loss"), scale=scale)
+            self._step(
+                loss=loss,
+                scale=scale,
+                store_grads_path=store_grads_path,
+                orthogonal_projection=orthogonal_projection
+            )
 
     @torch.no_grad()
-    def virtual_step(self, scale=1, **kwargs):
-        """Virtual step function when there's gradient accumulation.
-
-        `loss` must be passed in as a keyword argument!
-        """
+    def virtual_step(self, loss: torch.Tensor, scale=1.):
+        """Virtual step function when there's gradient accumulation."""
         if self.ghost_clipping:
-            self._ghost_virtual_step(loss=kwargs.pop("loss"))
+            self._ghost_virtual_step(loss=loss)
         else:
-            self._virtual_step(loss=kwargs.pop("loss"), scale=scale)
+            self._virtual_step(loss=loss, scale=scale)
 
-    def _step(self, loss, scale=1.):
+    def zero_grad(self, skip_grad=False):
+        for name, param in self.named_params:
+            if hasattr(param, "grad_sample"):
+                del param.grad_sample
+            if hasattr(param, "norm_sample"):
+                del param.norm_sample
+            if hasattr(param, "summed_grad"):
+                del param.summed_grad
+            if not skip_grad:
+                if hasattr(param, "grad"):
+                    del param.grad
+
+    def _step(
+        self,
+        loss,
+        scale,
+        store_grads_path,
+        orthogonal_projection
+    ):
         """Create noisy gradients.
 
-        Should be ran right before you call `optimizer.step`.
+        Should be run right before you call `optimizer.step`.
 
         This function does 3 things:
             1) call `loss.backward()`
@@ -386,6 +409,9 @@ class PrivacyEngine(object):
         Args:
             loss: The per-example loss; a 1-D tensor.
             scale: The loss up-scaling factor in amp. In full precision, this arg isn't useful.
+            store_grads_path: Path to store gradients flattened and moved to CPU. Doesn't do anything if None.
+            orthogonal_projection: len(param) x len(param) sized orthogonal projection matrix.
+                Project the summed gradients to this subspace. Doesn't do anything if None.
         """
         if self._locked:  # Skip this gradient creation step if already created gradient and haven't stepped.
             logging.warning("Attempted to step, but the engine is on lock.")
@@ -396,6 +422,30 @@ class PrivacyEngine(object):
         self.max_clip = coef_sample.max().item()
         self.min_clip = coef_sample.min().item()
         self.med_clip = coef_sample.median().item()
+
+        # --- low rank analysis project ---
+        def _get_flat_grad():
+            """Get the flat summed clipped gradients."""
+            return torch.cat([param.summed_grad.flatten() for _, param in self.named_params])
+
+        if store_grads_path is not None:  # Store the flat summed clipped gradients.
+            flat_grad = _get_flat_grad()
+            torch.save({"flat_grad": flat_grad.cpu().float()}, store_grads_path)
+
+        if orthogonal_projection is not None:
+            flat_grad = _get_flat_grad()
+            if orthogonal_projection.device != flat_grad.device or orthogonal_projection.dtype != flat_grad.dtype:
+                orthogonal_projection = orthogonal_projection.to(flat_grad)
+            Pg = torch.matmul(orthogonal_projection.T, flat_grad)
+            # TODO: Matrix multiplication with very large dimension (millions in this case) results in weird issues.
+            #   In this case, `torch.matmul` fails due to calling some algo. Resorting to `torch.mm` for now.
+            flat_grad = torch.mm(orthogonal_projection, Pg[:, None]).squeeze()
+            grads = utils.flat_to_shape(
+                flat_tensor=flat_grad, shapes=[param.shape for _, param in self.named_params]
+            )
+            for (_, param), grad in utils.zip_(self.named_params, grads):
+                param.summed_grad = grad
+        # ---
 
         # Add noise and scale by inverse batch size.
         signals, noises = [], []
@@ -436,34 +486,18 @@ class PrivacyEngine(object):
 
         self.lock()  # Make creating new gradients impossible, unless optimizer.step is called.
 
-    def zero_grad(self, skip_grad=False):
-        for name, param in self.named_params:
-            if hasattr(param, "grad_sample"):
-                del param.grad_sample
-            if hasattr(param, "norm_sample"):
-                del param.norm_sample
-            if hasattr(param, "summed_grad"):
-                del param.summed_grad
-            if not skip_grad:
-                if hasattr(param, "grad"):
-                    del param.grad
-
-    def _virtual_step(self, loss, scale=1.):
+    def _virtual_step(self, loss, scale):
         self._accumulate_summed_grad(loss=loss, scale=scale)
-        for name, param in self.named_params:
-            # Del everything except `.summed_grad` to save memory!
-            if hasattr(param, "grad_sample"):
-                # This must be deleted due to how `privacy_utils::supported_layers_grad_samplers.py` works!
-                #   When a parameter with `.grad_sample` is reused, the per-sample gradients are accumulated!
-                del param.grad_sample
-            if hasattr(param, "grad"):
-                del param.grad
 
     @torch.no_grad()
-    def _accumulate_summed_grad(self, loss, scale=1.):
-        """Accumulate signal by summing clipped gradients."""
+    def _accumulate_summed_grad(self, loss, scale):
+        """Accumulate signal by summing clipped gradients.
+
+        Removes `.grad_sample` and `.grad` for each variable that requires grad at the end.
+        """
         if loss.dim() != 1:
             raise ValueError(f"Expected `loss` to be a the per-example loss 1-D tensor.")
+
         with torch.enable_grad():
             loss.sum(dim=0).backward()
 
@@ -515,6 +549,15 @@ class PrivacyEngine(object):
                 param.summed_grad = 0.
             current_device = param.grad_sample.device
             param.summed_grad += torch.einsum("i,i...->...", coef_sample.to(current_device), param.grad_sample)
+
+            # Aggressive memory saving -- delete everything except `.summed_grad` to save memory!
+            if hasattr(param, "grad_sample"):
+                # This must be deleted due to how `privacy_utils::supported_layers_grad_samplers.py` works!
+                #   When a parameter with `.grad_sample` is reused, the per-sample gradients are accumulated!
+                del param.grad_sample
+            if hasattr(param, "grad"):
+                del param.grad
+
         return norm_sample, coef_sample
 
     def get_privacy_spent(self, steps=None, accounting_mode=None, lenient=False) -> Dict:
@@ -915,6 +958,9 @@ def _eps_from_gdp(
     **_,
 ):
     """Get the ε in (ε, δ)-DP from f-DP accounting."""
+    if steps == 0:
+        return np.nan, np.nan
+
     epochs = steps * sample_rate
     if mode == "poisson":
         eps_fn = gdp_accounting.compute_eps_poisson
@@ -945,6 +991,9 @@ def _eps_from_glw(
     eps_error=0.05,
     **_,
 ):
+    if steps == 0:
+        return np.nan, np.nan
+
     from prv_accountant import Accountant
     accountant = Accountant(
         noise_multiplier=sigma,

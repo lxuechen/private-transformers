@@ -69,4 +69,3 @@ Training on the larger datasets for even more epochs should bring further perfor
 - We got similar results as those reported in the paper with Opacus, but with the embedding subnetworks (word embedding,
   positional embedding, token type embedding) frozen. Note that unfreezing the embedding subnetwork and plugging such a
   model (from HF) into Opacus would result in errors, due to how HF transformers are implemented.
-  

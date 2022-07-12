@@ -2,6 +2,9 @@ from dataclasses import dataclass, field
 
 import transformers
 
+from .common import true_tags
+from typing import Optional
+
 
 @dataclass
 class PrivacyArguments:
@@ -34,11 +37,13 @@ class PrivacyArguments:
     accounting_mode: str = field(
         default="rdp_cks", metadata={"help": "One of (`rdp`, `gdp`, `rdp_cks`, `all`)."}
     )
-    ghost_clipping: str = field(default="no")
+    ghost_clipping: str = field(
+        default="no"
+    )
 
     def __post_init__(self):
-        self.non_private = self.non_private.lower() in ('y', 'yes')
-        self.ghost_clipping = self.ghost_clipping.lower() in ('y', 'yes')
+        self.non_private = self.non_private.lower() in true_tags  # noqa
+        self.ghost_clipping = self.ghost_clipping.lower() in true_tags  # noqa
 
 
 @dataclass
@@ -52,4 +57,19 @@ class TrainingArguments(transformers.TrainingArguments):
 
     def __post_init__(self):
         super(TrainingArguments, self).__post_init__()
-        self.lr_decay = self.lr_decay.lower() in ('y', 'yes')
+        self.lr_decay = self.lr_decay.lower() in true_tags  # noqa
+
+
+@dataclass
+class AuxiliaryArguments:
+    eval_spectrum: str = field(default="no")
+    max_spectrum_batches: int = field(default=100)
+    max_lanczos_iter: int = field(default=100)
+
+    store_grads: str = field(default="no")
+    orthogonal_projection_path: Optional[str] = field(default=None)
+    orthogonal_projection_rank: int = field(default=100)
+
+    def __post_init__(self):
+        self.eval_spectrum = self.eval_spectrum.lower() in true_tags  # noqa
+        self.store_grads = self.store_grads.lower() in true_tags  # noqa
