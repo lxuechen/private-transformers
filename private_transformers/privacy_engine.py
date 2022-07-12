@@ -26,7 +26,6 @@ DEFAULT_ALPHAS = tuple(1 + x / 10.0 for x in range(1, 100)) + tuple(range(12, 64
 # TODO: Migrate accounting utils.
 # TODO: Deprecate gdp, since it under-accounts.
 # TODO: Deprecate old opacus RDP privacy account.
-# TODO: Remove misc.py.
 class PrivacyEngine(object):
     """Differentially-private optimization engine that works gracefully with Hugging Face transformers.
 
