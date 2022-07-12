@@ -241,7 +241,7 @@ def _compute_rdp(q: float, sigma: float, alpha: float) -> float:
 
 
 def compute_rdp(
-    q: float, noise_multiplier: float, steps: int, orders: Sequence[List[float], float]
+    q: float, noise_multiplier: float, steps: int, orders: Union[Sequence[float], float]
 ) -> Union[List[float], float]:
     r"""Computes Renyi Differential Privacy (RDP) guarantees of the
     Sampled Gaussian Mechanism (SGM) iterated ``steps`` times.
