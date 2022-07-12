@@ -1,8 +1,8 @@
 """Compilation of all the arguments."""
-from dataclasses import dataclass, field
 import logging
 import os
 import sys
+from dataclasses import dataclass, field
 from typing import Optional
 
 import transformers
@@ -179,7 +179,7 @@ class PrivacyArguments:
         }
     )
     accounting_mode: str = field(
-        default="rdp_cks", metadata={"help": "One of `rdp`, `gdp`, `rdp_cks`, `glw`, `all`."}
+        default="rdp", metadata={"help": "One of `rdp`, `glw`, `all`."}
     )
     non_private: str = field(default="no")
     ghost_clipping: str = field(default="no")

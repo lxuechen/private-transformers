@@ -9,23 +9,16 @@ import collections
 import logging
 import math
 import types
-from typing import Callable, Dict, Optional, Sequence, Union
+from typing import Dict, Optional, Sequence, Union
 
-import numpy as np
 import torch
 from ml_swissknife import utils
 from torch import nn
 
 from . import autograd_grad_sample, transformers_support
-from .accounting import gdp_accounting, rdp_accounting
-
-DEFAULT_ALPHAS = tuple(1 + x / 10.0 for x in range(1, 100)) + tuple(range(12, 64))
+from .accounting import accounting_manager
 
 
-# TODO: Remove fp16 support for now.
-# TODO: Migrate accounting utils.
-# TODO: Deprecate gdp, since it under-accounts.
-# TODO: Deprecate old opacus RDP privacy account.
 class PrivacyEngine(object):
     """Differentially-private optimization engine that works gracefully with Hugging Face transformers.
 
@@ -48,14 +41,13 @@ class PrivacyEngine(object):
         noise_multiplier: Optional[float] = None,
         target_epsilon: Optional[float] = None,
         target_delta: Optional[float] = None,
-        alphas: Sequence[float] = DEFAULT_ALPHAS,
+        alphas: Sequence[float] = accounting_manager.DEFAULT_ALPHAS,
         record_snr: bool = True,
         named_params: Optional[Sequence] = None,
-        fp16: bool = False,
         numerical_stability_constant=1e-6,
         ghost_clipping: bool = False,
         # Accounting specifics.
-        accounting_mode="rdp_cks",
+        accounting_mode="rdp",
         eps_error=0.05,
         **unused_kwargs,
     ):
@@ -65,44 +57,36 @@ class PrivacyEngine(object):
             module: The PyTorch module for which per-sample gradient is required.
                 Setting the `requires_grad` attribute of a parameter to False
                 disables the per-sample gradient accumulation.
-            batch_size: The lot size.
+            batch_size: The expected size of Poisson-sampled batch, i.e., the lot size.
             sample_size: Size of dataset.
             max_grad_norm: The maximum 2-norm for gradient clipping.
             epochs: The number of epochs for training.
             noise_multiplier: The extra multiplier for DP-SGD noise.
-            target_epsilon: The target privacy spending. Only used to estimate the `noise_multiplier` if it is not set.
-            target_delta: The target failure probability. Defaults to 1 / (2 * sample_size) if not set.
+            target_epsilon: The target privacy spending.
+                Only used to estimate the `noise_multiplier` if it is not set.
+            target_delta: The target failure probability.
+                Defaults to 1 / (2 * sample_size) if not set.
             alphas: The RDP orders for (ε, δ)-DP conversion. Useless if not accounting in RDP.
             record_snr: Record and report the signal-to-noise ratio --
                 ratio between norm of summed clipped gradient and norm of noise vector.
             named_params: Specifies which parameters need gradients;
                 defaults to use parameters which require grad in module.
-            fp16: Set this to True when training with mixed-precision.
             numerical_stability_constant: Small constant to avoid division by 0 when clipping.
             ghost_clipping: Set this to True to use memory efficient ghost clipping.
-            accounting_mode: The method of accounting privacy. One of (`rdp`, `gdp`, `rdp_cks`, `glw`, `all`).
+            accounting_mode: The method of accounting privacy. One of (`rdp`, `glw`, `all`).
                 Meanings of shorthands:
-                    - rdp: The method in "Rényi Differential Privacy of the Sampled Gaussian Mechanism".
-                        https://arxiv.org/abs/1908.10530
-                    - rdp_cks: Account loss with RDP but perform conversion to approx-DP with a procedure defined in
-                        "The Discrete Gaussian for Differential Privacy".
-                        https://arxiv.org/abs/2004.00010
-                        CKS are authors' last name's first letters.
-                    - gdp: Account loss with Gaussian DP and its central limit theorem described in
-                        "Deep Learning with Gaussian Differential Privacy".
-                        WARNING: This method may underestimate privacy spending.
+                    - rdp: Account loss with RDP but perform conversion to approx-DP with a procedure defined in
+                        "The Discrete Gaussian for Differential Privacy". https://arxiv.org/abs/2004.00010
                     - glw: Account loss by numerically composing tradeoff functions in f-DP; defined in
-                        "Numerical composition of differential privacy".
-                        https://arxiv.org/abs/2106.02848
-                        GLW are authors' last name's first letters.
+                        "Numerical composition of differential privacy". https://arxiv.org/abs/2106.02848
                     - all: Report loss with all methods listed above.
             eps_error: Error threshold for upper and lower bound in the GLW accounting procedure.
         """
         utils.handle_unused_kwargs(unused_kwargs)
         del unused_kwargs
-
         super(PrivacyEngine, self).__init__()
-        if accounting_mode not in ('rdp', 'gdp', 'rdp_cks', 'glw', 'all',):
+
+        if accounting_mode not in accounting_manager.ACCOUNTING_MODES:
             raise ValueError(f"Unknown accounting mode: {accounting_mode}")
         if epochs <= 0.0:
             raise ValueError(f"Number of training epochs cannot be non-positive, but found epochs={epochs}")
@@ -124,14 +108,10 @@ class PrivacyEngine(object):
                 alphas=alphas,
                 eps_error=eps_error,
             )
-            if accounting_mode == "rdp":
-                noise_multiplier = get_sigma_from_rdp(**kwargs_for_get_sigma)
-            elif accounting_mode == "rdp_cks":
-                noise_multiplier = get_sigma_from_rdp_cks(**kwargs_for_get_sigma)
-            elif accounting_mode == "glw":
-                noise_multiplier = get_sigma_from_glw(**kwargs_for_get_sigma)
-            else:
-                noise_multiplier = get_sigma_from_gdp(**kwargs_for_get_sigma)
+            if accounting_mode in ("rdp", "all"):
+                noise_multiplier = accounting_manager.get_sigma_from_rdp(**kwargs_for_get_sigma)
+            else:  # "glw"
+                noise_multiplier = accounting_manager.get_sigma_from_glw(**kwargs_for_get_sigma)
 
         self.batch_size = batch_size
         self.sample_size = sample_size
@@ -170,13 +150,9 @@ class PrivacyEngine(object):
         self.num_params = sum(param.numel() for _, param in self.named_params)
 
         self._locked = False  # Lock the part where noisy gradients is created (in `self.step`) if True.
-        self.fp16 = fp16
         self.numerical_stability_constant = numerical_stability_constant
         self.ghost_clipping = ghost_clipping
         if ghost_clipping:
-            if fp16:
-                # TODO: Make ghost clipping work with mixed-precision.
-                raise NotImplementedError("Ghost clipping doesn't support mixed-precision.")
             # Prepare for first backward in ghost clipping.
             autograd_grad_sample.set_hooks_mode("ghost_norm")
 
@@ -189,7 +165,7 @@ class PrivacyEngine(object):
         self._locked = False
 
     def attach(self, optimizer):
-        autograd_grad_sample.add_hooks(model=self.module, batch_first=True, loss_reduction="sum", fp16=self.fp16)
+        autograd_grad_sample.add_hooks(model=self.module, batch_first=True, loss_reduction="sum")
 
         # Override zero grad.
         def dp_zero_grad(_self, *args, **kwargs):
@@ -570,8 +546,6 @@ class PrivacyEngine(object):
         if accounting_mode is None:
             accounting_mode = self.accounting_mode
 
-        privacy_results = {}
-
         kwargs = dict(
             sample_rate=self.sample_rate,
             steps=steps,
@@ -579,45 +553,27 @@ class PrivacyEngine(object):
             sigma=self.noise_multiplier,
             alphas=self.alphas,
         )
+
+        privacy_results = {}
         # The try-catch blocks are unusually sloppy... forgive me...
         if accounting_mode in ('all', 'rdp'):
             try:
-                eps_rdp, alpha_rdp = _eps_from_rdp(**kwargs)
-                privacy_results['eps_rdp_opacus'] = eps_rdp
-                privacy_results['alpha_rdp_opacus'] = alpha_rdp
+                eps_rdp, alpha_rdp = accounting_manager.eps_from_rdp(**kwargs)
+                privacy_results['eps_rdp'] = eps_rdp
+                privacy_results['alpha_rdp'] = alpha_rdp
             except Exception as err:
                 logging.fatal("RDP accounting failed! Double check privacy parameters.")
                 if not lenient:
                     raise err
 
-        if accounting_mode in ('all', 'gdp'):
-            try:
-                eps_gdp, mu_gdp = _eps_from_gdp(**kwargs)
-                privacy_results['eps_gdp'] = eps_gdp
-                privacy_results['mu_gdp'] = mu_gdp
-            except Exception as err:
-                logging.fatal("GDP accounting failed! Double check privacy parameters.")
-                if not lenient:
-                    raise err
-
-        if accounting_mode in ('all', "rdp_cks"):
-            try:
-                eps_rdp, alpha_rdp = _eps_from_rdp_cks(**kwargs)
-                privacy_results['eps_rdp'] = eps_rdp
-                privacy_results['alpha_rdp'] = alpha_rdp
-            except Exception as err:
-                logging.fatal("RDP accounting with CKS conversion failed! "
-                              "Double check privacy parameters.")
-                if not lenient:
-                    raise err
-
         if accounting_mode in ('all', "glw"):
             try:
-                eps_glw = _eps_from_glw(**kwargs)
+                eps_glw = accounting_manager.eps_from_glw(**kwargs)
                 privacy_results.update(eps_glw)
             except Exception as err:
-                logging.fatal("Numerical composition of tradeoff functions failed! "
-                              "Double check privacy parameters.")
+                logging.fatal(
+                    "Numerical composition of tradeoff functions failed! Double check privacy parameters."
+                )
                 if not lenient:
                     raise err
 
@@ -650,361 +606,3 @@ class PrivacyEngine(object):
             f"  ghost_clipping={self.ghost_clipping}\n"
             f")"
         )
-
-
-def get_sigma_from_rdp(
-    target_epsilon: float,
-    target_delta: float,
-    sample_rate: float,
-    epochs: Optional[Union[float, int]] = None,
-    alphas=DEFAULT_ALPHAS,
-    threshold=1e-3,
-    sigma_hi_init=4,
-    sigma_lo_init=0.1,
-    steps=None,
-    **kwargs,
-) -> float:
-    """Get noise multiplier σ for a given ε from Renyi-DP accounting.
-
-    Notes:
-        Setting `threshold` to an appropriate value is crucial for accurate search.
-        The default is fine-grained enough for ε ∈ [0.1, 1e10].
-
-    Args:
-        target_epsilon: ε in (ε, δ)-DP.
-        target_delta: δ in (ε, δ)-DP.
-        sample_rate: Rate for Poisson subsampling, typically denoted as q.
-        epochs: Number of passes through the dataset.
-        alphas: Orders for Renyi-divergence.
-        threshold: Threshold for binary search. Determines the granularity of
-            the search result.
-        sigma_hi_init: Starting point for the high end of binary search.
-        sigma_lo_init: Starting point for the low end of binary search.
-        steps: Number of updates; defaults to use `epochs` if not set.
-
-    Returns:
-        The noise multiplier σ for DP-SGD.
-    """
-    if steps is None:
-        if epochs is None:
-            raise ValueError("Epochs and steps cannot both be None")
-        steps = math.ceil(epochs / sample_rate)  # Be conservative!
-
-    def sigma_to_eps(sigma):
-        eps, _ = _eps_from_rdp(
-            sample_rate=sample_rate,
-            sigma=sigma,
-            steps=steps,
-            alphas=alphas,
-            delta=target_delta,
-        )
-        return eps
-
-    return _get_sigma_with_target_epsilon(
-        sigma_hi_init=sigma_hi_init,
-        sigma_lo_init=sigma_lo_init,
-        sigma_to_eps=sigma_to_eps,
-        target_epsilon=target_epsilon,
-        threshold=threshold,
-    )
-
-
-def get_sigma_from_rdp_cks(
-    target_epsilon: float,
-    target_delta: float,
-    sample_rate: float,
-    epochs: Optional[Union[float, int]] = None,
-    alphas=DEFAULT_ALPHAS,
-    threshold=1e-3,
-    sigma_hi_init=4,
-    sigma_lo_init=0.1,
-    steps=None,
-    **kwargs,
-) -> float:
-    if steps is None:
-        if epochs is None:
-            raise ValueError("Epochs and steps cannot both be None")
-        steps = math.ceil(epochs / sample_rate)
-
-    def sigma_to_eps(sigma):
-        eps, _ = _eps_from_rdp_cks(
-            sample_rate=sample_rate,
-            sigma=sigma,
-            steps=steps,
-            alphas=alphas,
-            delta=target_delta,
-        )
-        return eps
-
-    return _get_sigma_with_target_epsilon(
-        sigma_hi_init=sigma_hi_init,
-        sigma_lo_init=sigma_lo_init,
-        sigma_to_eps=sigma_to_eps,
-        target_epsilon=target_epsilon,
-        threshold=threshold,
-    )
-
-
-def get_sigma_from_gdp(
-    target_epsilon: float,
-    target_delta: float,
-    sample_rate: float,
-    epochs: Optional[Union[float, int]] = None,
-    threshold=1e-3,
-    sigma_hi_init=4,
-    sigma_lo_init=0.1,
-    mode="poisson",
-    steps=None,
-    **kwargs,
-) -> float:
-    """Get noise multiplier σ for a given ε from f-DP accounting using the central limit theorem in Gaussian DP."""
-    if steps is None:
-        if epochs is None:
-            raise ValueError("Epochs and steps cannot both be None")
-        steps = math.ceil(epochs / sample_rate)
-
-    def sigma_to_eps(sigma):
-        eps, _ = _eps_from_gdp(
-            sample_rate=sample_rate,
-            sigma=sigma,
-            steps=steps,
-            delta=target_delta,
-            mode=mode,
-        )
-        return eps
-
-    return _get_sigma_with_target_epsilon(
-        sigma_hi_init=sigma_hi_init,
-        sigma_lo_init=sigma_lo_init,
-        sigma_to_eps=sigma_to_eps,
-        target_epsilon=target_epsilon,
-        threshold=threshold,
-    )
-
-
-def get_sigma_from_glw(
-    target_epsilon: float,
-    target_delta: float,
-    sample_rate: float,
-    epochs: Optional[Union[float, int]] = None,
-    eps_error=0.05,
-    threshold=1e-3,
-    sigma_hi_init=4,
-    sigma_lo_init=0.1,
-    steps=None,
-    **kwargs,
-):
-    """Get noise multiplier σ for a given ε from numerically composing tradeoff functions."""
-    from prv_accountant import Accountant
-
-    if steps is None:
-        if epochs is None:
-            raise ValueError("Epochs and steps cannot both be None")
-        steps = math.ceil(epochs / sample_rate)
-
-    def sigma_to_eps(sigma):
-        accountant = Accountant(
-            noise_multiplier=sigma,
-            sampling_probability=sample_rate,
-            delta=target_delta,
-            eps_error=eps_error,
-            max_compositions=steps,
-        )
-        eps_low, eps_estimate, eps_upper = accountant.compute_epsilon(num_compositions=steps)
-        return eps_upper  # Be conservative.
-
-    return _get_sigma_with_target_epsilon(
-        sigma_hi_init=sigma_hi_init,
-        sigma_lo_init=sigma_lo_init,
-        sigma_to_eps=sigma_to_eps,
-        target_epsilon=target_epsilon,
-        threshold=threshold,
-    )
-
-
-def _get_sigma_with_target_epsilon(
-    sigma_hi_init: float,
-    sigma_lo_init: float,
-    sigma_to_eps: Callable,
-    target_epsilon: float,
-    threshold: float,
-) -> float:
-    """Core logic for binary searching σ given ε and δ."""
-    if sigma_lo_init > sigma_hi_init:
-        raise ValueError("`sigma_lo` should be smaller than `sigma_hi`.")
-
-    # Find an appropriate region for binary search.
-    sigma_hi = sigma_hi_init
-    sigma_lo = sigma_lo_init
-
-    # Ensure sigma_hi isn't too small.
-    while True:
-        eps = sigma_to_eps(sigma_hi)
-        if eps < target_epsilon:
-            break
-        sigma_hi *= 2
-
-    # Ensure sigma_lo isn't too large.
-    while True:
-        eps = sigma_to_eps(sigma_lo)
-        if eps > target_epsilon:
-            break
-        sigma_lo /= 2
-
-    # Binary search.
-    while sigma_hi - sigma_lo > threshold:
-        sigma = (sigma_hi + sigma_lo) / 2
-        eps = sigma_to_eps(sigma)
-        if eps < target_epsilon:
-            sigma_hi = sigma
-        else:
-            sigma_lo = sigma
-
-    # Conservative estimate.
-    return sigma_hi
-
-
-def _eps_from_rdp(
-    sample_rate,
-    sigma,
-    steps,
-    delta,
-    alphas=DEFAULT_ALPHAS,
-    **_,
-):
-    """Get the ε in (ε, δ)-DP from Renyi-DP accounting."""
-    # This is based on Poisson sampling in https://arxiv.org/pdf/1908.10530.pdf
-    rdp = rdp_accounting.compute_rdp(
-        q=sample_rate, noise_multiplier=sigma, steps=steps, orders=alphas
-    )
-    # (ε, α)
-    eps, alpha = rdp_accounting.get_privacy_spent(
-        orders=alphas, rdp=rdp, delta=delta
-    )
-    return eps, alpha
-
-
-def _compute_eps_cks(orders, rdp, delta):
-    """Compute epsilon given a list of RDP values and target delta.
-    Args:
-      orders: An array (or a scalar) of orders.
-      rdp: A list (or a scalar) of RDP guarantees.
-      delta: The target delta.
-    Returns:
-      Pair of (eps, optimal_order).
-    Raises:
-      ValueError: If input is malformed.
-    """
-    orders_vec = np.atleast_1d(orders)
-    rdp_vec = np.atleast_1d(rdp)
-
-    if delta <= 0:
-        raise ValueError("Privacy failure probability bound delta must be >0.")
-    if len(orders_vec) != len(rdp_vec):
-        raise ValueError("Input lists must have the same length.")
-
-    # Basic bound (see https://arxiv.org/abs/1702.07476 Proposition 3 in v3):
-    #   eps = min( rdp_vec - math.log(delta) / (orders_vec - 1) )
-
-    # Improved bound from https://arxiv.org/abs/2004.00010 Proposition 12 (in v4).
-    # Also appears in https://arxiv.org/abs/2001.05990 Equation 20 (in v1).
-    eps_vec = []
-    for (a, r) in zip(orders_vec, rdp_vec):
-        if a < 1: raise ValueError("Renyi divergence order must be >=1.")
-        if r < 0: raise ValueError("Renyi divergence must be >=0.")
-
-        if delta ** 2 + math.expm1(-r) >= 0:
-            # In this case, we can simply bound via KL divergence:
-            # delta <= sqrt(1-exp(-KL)).
-            eps = 0  # No need to try further computation if we have eps = 0.
-        elif a > 1.01:
-            # This bound is not numerically stable as alpha->1.
-            # Thus we have a min value of alpha.
-            # The bound is also not useful for small alpha, so doesn't matter.
-            eps = r + math.log1p(-1 / a) - math.log(delta * a) / (a - 1)
-        else:
-            # In this case we can't do anything. E.g., asking for delta = 0.
-            eps = np.inf
-        eps_vec.append(eps)
-
-    idx_opt = np.argmin(eps_vec)
-    return max(0, eps_vec[idx_opt]), orders_vec[idx_opt]
-
-
-def _eps_from_rdp_cks(
-    sample_rate,
-    sigma,
-    steps,
-    delta,
-    alphas=DEFAULT_ALPHAS,
-    **_,
-):
-    """Compute RDP as usual, but the conversion to (ε, δ)-DP is based on result by Canonne, Kamath, Steinke.
-
-    # @formatter:off
-    Code from https://github.com/tensorflow/privacy/blob/5f07198b66b3617b22609db983926e3ba97cd905/tensorflow_privacy/privacy/analysis/rdp_accountant.py#L237
-    # @formatter:on
-    """
-    rdp = rdp_accounting.compute_rdp(
-        q=sample_rate, noise_multiplier=sigma, steps=steps, orders=alphas
-    )
-    # (ε, α)
-    eps, alpha = _compute_eps_cks(orders=alphas, rdp=rdp, delta=delta)
-    return eps, alpha
-
-
-def _eps_from_gdp(
-    sample_rate,
-    sigma,
-    steps,
-    delta,
-    mode="poisson",
-    **_,
-):
-    """Get the ε in (ε, δ)-DP from f-DP accounting."""
-    if steps == 0:
-        return np.nan, np.nan
-
-    epochs = steps * sample_rate
-    if mode == "poisson":
-        eps_fn = gdp_accounting.compute_eps_poisson
-        mu_fn = gdp_accounting.compute_mu_poisson
-    else:
-        eps_fn = gdp_accounting.compute_eps_uniform
-        mu_fn = gdp_accounting.compute_mu_uniform
-
-    eps = eps_fn(
-        epochs=epochs,
-        noise_multi=sigma,
-        delta=delta,
-        sample_rate=sample_rate,
-    )
-    mu = mu_fn(
-        epochs=epochs,
-        noise_multi=sigma,
-        sample_rate=sample_rate,
-    )
-    return eps, mu
-
-
-def _eps_from_glw(
-    sample_rate,
-    sigma,
-    steps,
-    delta,
-    eps_error=0.05,
-    **_,
-):
-    if steps == 0:
-        return np.nan, np.nan
-
-    from prv_accountant import Accountant
-    accountant = Accountant(
-        noise_multiplier=sigma,
-        sampling_probability=sample_rate,
-        delta=delta,
-        eps_error=eps_error,
-        max_compositions=steps
-    )
-    eps_low, eps_estimate, eps_upper = accountant.compute_epsilon(num_compositions=steps)
-    return dict(eps_low=eps_low, eps_estimate=eps_estimate, eps_upper=eps_upper)

@@ -35,7 +35,7 @@ class PrivacyArguments:
         default="yes", metadata={"help": "Train non-privately if True."}
     )
     accounting_mode: str = field(
-        default="rdp_cks", metadata={"help": "One of (`rdp`, `gdp`, `rdp_cks`, `all`)."}
+        default="rdp", metadata={"help": "One of (`rdp`, `glw`, `all`)."}
     )
     ghost_clipping: str = field(
         default="no"
