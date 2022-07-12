@@ -16,12 +16,17 @@ import torch
 from ml_swissknife import utils
 from torch import nn
 
-from . import autograd_grad_sample, misc, transformers_support
+from . import autograd_grad_sample, transformers_support
 from .accounting import gdp_accounting, rdp_accounting
 
 DEFAULT_ALPHAS = tuple(1 + x / 10.0 for x in range(1, 100)) + tuple(range(12, 64))
 
 
+# TODO: Remove fp16 support for now.
+# TODO: Migrate accounting utils.
+# TODO: Deprecate gdp, since it under-accounts.
+# TODO: Deprecate old opacus RDP privacy account.
+# TODO: Remove misc.py.
 class PrivacyEngine(object):
     """Differentially-private optimization engine that works gracefully with Hugging Face transformers.
 
@@ -94,7 +99,7 @@ class PrivacyEngine(object):
                     - all: Report loss with all methods listed above.
             eps_error: Error threshold for upper and lower bound in the GLW accounting procedure.
         """
-        misc.handle_unused_kwargs(unused_kwargs)
+        utils.handle_unused_kwargs(unused_kwargs)
         del unused_kwargs
 
         super(PrivacyEngine, self).__init__()
