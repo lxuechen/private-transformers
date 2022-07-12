@@ -11,9 +11,9 @@ from typing import Tuple
 
 import fire
 import numpy as np
-from swissknife import utils
 import torch
 import tqdm
+from ml_swissknife import utils
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 

@@ -12,13 +12,11 @@ import types
 from typing import Callable, Dict, Optional, Sequence, Union
 
 import numpy as np
-from swissknife import utils
 import torch
+from ml_swissknife import utils
 from torch import nn
 
-from . import autograd_grad_sample
-from . import misc
-from . import transformers_support
+from . import autograd_grad_sample, misc, transformers_support
 from .accounting import gdp_accounting, rdp_accounting
 
 DEFAULT_ALPHAS = tuple(1 + x / 10.0 for x in range(1, 100)) + tuple(range(12, 64))
