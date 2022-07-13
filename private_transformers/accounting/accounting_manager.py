@@ -29,11 +29,11 @@ def get_sigma_from_rdp(
 
     def sigma_to_eps(sigma):
         eps, _ = eps_from_rdp(
-            sample_rate=sample_rate,
             sigma=sigma,
+            sample_rate=sample_rate,
+            delta=target_delta,
             steps=steps,
             alphas=alphas,
-            delta=target_delta,
         )
         return eps
 
@@ -71,8 +71,8 @@ def get_sigma_from_glw(
             noise_multiplier=sigma,
             sampling_probability=sample_rate,
             delta=target_delta,
-            eps_error=eps_error,
             max_compositions=steps,
+            eps_error=eps_error,
         )
         eps_low, eps_estimate, eps_upper = accountant.compute_epsilon(num_compositions=steps)
         return eps_upper  # Be conservative.
