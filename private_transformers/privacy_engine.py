@@ -100,18 +100,13 @@ class PrivacyEngine(object):
                 raise ValueError(
                     f"`target_epsilon` and `epochs` must be specified when `noise_multiplier` is `None`."
                 )
-            kwargs_for_get_sigma = dict(
-                target_epsilon=target_epsilon,
-                target_delta=target_delta,
-                sample_rate=sample_rate,
-                epochs=epochs,
-                alphas=alphas,
-                eps_error=eps_error,
-            )
             if accounting_mode in ("rdp", "all"):
-                noise_multiplier = accounting_manager.get_sigma_from_rdp(**kwargs_for_get_sigma)
+                manager = accounting_manager.RDPManager(alphas=alphas)
             else:  # "glw"
-                noise_multiplier = accounting_manager.get_sigma_from_glw(**kwargs_for_get_sigma)
+                manager = accounting_manager.GLWManager(eps_error=eps_error)
+            noise_multiplier = manager.compute_sigma(
+                target_epsilon=target_epsilon, target_delta=target_delta, sample_rate=sample_rate, epochs=epochs,
+            )
 
         self.batch_size = batch_size
         self.sample_size = sample_size
@@ -124,6 +119,7 @@ class PrivacyEngine(object):
         self.target_epsilon = target_epsilon
         self.target_delta = target_delta
         self.alphas = alphas
+        self.eps_error = eps_error
         self.accounting_mode = accounting_mode
         self.record_snr = record_snr
 
@@ -540,26 +536,29 @@ class PrivacyEngine(object):
 
         return norm_sample, coef_sample
 
-    def get_privacy_spent(self, steps=None, accounting_mode=None, lenient=False) -> Dict:
+    def get_privacy_spent(
+        self,
+        steps: Optional[int] = None,
+        accounting_mode: Optional[str] = None,
+        lenient=False
+    ) -> Dict:
         if steps is None:
             steps = self.steps
         if accounting_mode is None:
             accounting_mode = self.accounting_mode
 
-        kwargs = dict(
-            sample_rate=self.sample_rate,
-            steps=steps,
-            delta=self.target_delta,
-            sigma=self.noise_multiplier,
-            alphas=self.alphas,
-        )
-
-        privacy_results = {}
+        privacy_results = {}  # Contains stats from all modes.
         if accounting_mode in ('all', 'rdp'):
             try:
-                eps_rdp, alpha_rdp = accounting_manager.eps_from_rdp(**kwargs)
-                privacy_results['eps_rdp'] = eps_rdp
-                privacy_results['alpha_rdp'] = alpha_rdp
+                manager = accounting_manager.RDPManager(alphas=self.alphas)
+                privacy_results.update(
+                    manager.compute_epsilon(
+                        sigma=self.noise_multiplier,
+                        sample_rate=self.sample_rate,
+                        target_delta=self.target_delta,
+                        steps=steps,
+                    )
+                )
             except Exception as err:
                 logging.fatal("RDP accounting failed! Double check privacy parameters.")
                 if not lenient:
@@ -567,8 +566,15 @@ class PrivacyEngine(object):
 
         if accounting_mode in ('all', "glw"):
             try:
-                eps_glw = accounting_manager.eps_from_glw(**kwargs)
-                privacy_results.update(eps_glw)
+                manager = accounting_manager.GLWManager(eps_error=self.eps_error)
+                privacy_results.update(
+                    manager.compute_epsilon(
+                        sigma=self.noise_multiplier,
+                        sample_rate=self.sample_rate,
+                        target_delta=self.target_delta,
+                        steps=steps
+                    )
+                )
             except Exception as err:
                 logging.fatal(
                     "Numerical composition of tradeoff functions failed! Double check privacy parameters."
