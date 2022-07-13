@@ -333,9 +333,9 @@ class PrivacyEngine(object):
         store_grads_path: Optional[str] = None,
         orthogonal_projection: Optional[torch.Tensor] = None
     ):
-        """Step function."""
         if self.ghost_clipping:
-            # TODO: Orthogonal projection not supported in ghost clipping.
+            if store_grads_path is not None or orthogonal_projection is not None:
+                raise ValueError(f"Projecting the gradients is not supported for ghost clipping.")
             self._ghost_step(loss=loss)
         else:
             self._step(
