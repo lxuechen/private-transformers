@@ -555,7 +555,6 @@ class PrivacyEngine(object):
         )
 
         privacy_results = {}
-        # The try-catch blocks are unusually sloppy... forgive me...
         if accounting_mode in ('all', 'rdp'):
             try:
                 eps_rdp, alpha_rdp = accounting_manager.eps_from_rdp(**kwargs)
