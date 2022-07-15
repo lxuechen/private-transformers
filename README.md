@@ -83,7 +83,7 @@ optimizer.step(loss=loss)
 
 The biggest differences compared to Opacus are:
 
-- We require the per-example loss (a 1-D tensor) be passed into `optimizer.step` (or `optimizer.virtual_step`)
+- We require the per-example loss (a 1-D tensor) be passed into `optimizer.step` (or `optimizer.virtual_step`).
 - The per-example loss must be passed in as a *keyword argument*.
 - `loss.backward()` shouldn't be called on the user end; it's called internally in `optimizer.step` (
   or `optimizer.virtual_step`).
@@ -132,8 +132,7 @@ should be sufficient to get things started. Detailed instructions are in the rea
 - [BertForSequenceClassification](https://huggingface.co/transformers/_modules/transformers/models/bert/modeling_bert.html#BertForSequenceClassification)
 - [RobertaForSequenceClassification](https://huggingface.co/transformers/model_doc/roberta.html#robertaforsequenceclassification)
 - [AlbertForSequenceClassification](https://huggingface.co/transformers/_modules/transformers/models/albert/modeling_albert.html#AlbertForSequenceClassification)
-- [BartForConditionalGeneration](https://huggingface.co/docs/transformers/model_doc/bart#transformers.BartForCausalLM) (
-  only when positional embedding layer is not updated!)
+- [BartForConditionalGeneration](https://huggingface.co/docs/transformers/model_doc/bart#transformers.BartForCausalLM) (only when positional embedding layer is not updated!)
 
 Not all models in the Hugging Face library are supported. The main additional work here is to
 
