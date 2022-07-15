@@ -10,8 +10,9 @@ of [Hugging Face transformers](https://huggingface.co/transformers/).
 
 ## What is this? Why an extra codebase?
 
-- This codebase provides a privacy engine that builds off [Opacus](https://github.com/pytorch/opacus), but works way
-  more smoothly with [Hugging Face's transformers library](https://github.com/huggingface/transformers).
+- This codebase provides a privacy engine that builds off and rewrites [Opacus](https://github.com/pytorch/opacus) so
+  that integration with
+  [Hugging Face's transformers library](https://github.com/huggingface/transformers) is easy.
 - Additionally, we support the *ghost clipping* technique (see Section 4 of [this](https://arxiv.org/pdf/2110.05679.pdf)
   preprint on how it works) which allows privately training large transformers with considerably reduced memory cost --
   in many cases, almost as light as non-private training -- at a modest run-time overhead.
@@ -131,6 +132,8 @@ should be sufficient to get things started. Detailed instructions are in the rea
 - [BertForSequenceClassification](https://huggingface.co/transformers/_modules/transformers/models/bert/modeling_bert.html#BertForSequenceClassification)
 - [RobertaForSequenceClassification](https://huggingface.co/transformers/model_doc/roberta.html#robertaforsequenceclassification)
 - [AlbertForSequenceClassification](https://huggingface.co/transformers/_modules/transformers/models/albert/modeling_albert.html#AlbertForSequenceClassification)
+- [BartForConditionalGeneration](https://huggingface.co/docs/transformers/model_doc/bart#transformers.BartForCausalLM) (
+  only when positional embedding layer is not updated!)
 
 Not all models in the Hugging Face library are supported. The main additional work here is to
 
@@ -143,7 +146,8 @@ out specific models that aren't in the current list.
 
 ## FAQ
 
-I wrote some answers to potential questions [here](https://github.com/lxuechen/private-transformers/blob/main/FAQ.md).
+I wrote some stuff to potential questions [here](https://github.com/lxuechen/private-transformers/blob/main/FAQ.md).
+These include performing gradient accumulation, ghost clipping, and freezing parts of a model.
 
 ## Acknowledgements
 
@@ -155,7 +159,8 @@ composing multiple private mechanisms.
 ## Disclaimer
 
 - This codebase is not yet production-grade, e.g., cryptographically secure PRNGs are required for sampling noise -- our
-  codebase currently does not use these strong PRNGs. This codebase also isn't immune to [floating point representation attacks](https://github.com/pytorch/opacus/pull/260).
+  codebase currently does not use these strong PRNGs. This codebase also isn't immune
+  to [floating point representation attacks](https://github.com/pytorch/opacus/pull/260).
 - This codebase is born out of the need to experiment with various things for differentially private NLP in rapidly
   succession. I've tried my best to write clean code, though parts of this codebase may be less tidy than I had hoped
   given the extremely tight timeline.
