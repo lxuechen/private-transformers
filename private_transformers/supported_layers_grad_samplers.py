@@ -1,13 +1,15 @@
 """
 This module is a collection of grad samplers - methods to calculate per sample gradients
-for a layer given two tensors: 1) inputs, 2) grad_outputs.
+for a layer given two tensors: 1) inputs, and 2) grad_outputs.
 
 Supports ghost clipping introduced in
 Li, X., Tramèr, F., Liang, P., & Hashimoto, T. (2021).
 Large Language Models Can Be Strong Differentially Private Learners. arXiv preprint arXiv:2110.05679.
 
-A large portion of this code is adapted from Opacus (https://github.com/pytorch/opacus),
-which is licensed under Apache License 2.0.
+A large portion of this code is adapted from Opacus (https://github.com/pytorch/opacus).
+
+There's some memory and compute inefficiency. For a layer that requires grad, a parameter of it which doesn't require
+grad still gets grads computed, but not stored. This is an unfortunate trade-off made to let code more readable.
 """
 
 import torch
@@ -123,7 +125,7 @@ def _compute_linear_grad_sample(layer: nn.Linear, A: torch.Tensor, B: torch.Tens
             _create_or_extend_grad_sample(layer.bias, grad_bias)
 
 
-def _compute_norm_grad_sample(layer: nn.LayerNorm, A: torch.Tensor, B: torch.Tensor) -> None:
+def _compute_layer_norm_grad_sample(layer: nn.LayerNorm, A: torch.Tensor, B: torch.Tensor) -> None:
     """Computes per sample gradients for normalization layers."""
 
     is_backward_ghost_norm = autograd_grad_sample.get_hooks_mode() == BackwardHookMode.ghost_norm
@@ -191,6 +193,6 @@ def _custom_compute_conv1d_grad_sample(layer: nn.Linear, A: torch.Tensor, B: tor
 _supported_layers_grad_samplers = {
     "Embedding": _compute_embedding_grad_sample,
     "Linear": _compute_linear_grad_sample,
-    "LayerNorm": _compute_norm_grad_sample,
+    "LayerNorm": _compute_layer_norm_grad_sample,
     "Conv1D": _custom_compute_conv1d_grad_sample,  # HuggingFace Open-AI GPT-2.
 }
