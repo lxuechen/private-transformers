@@ -108,7 +108,7 @@ privacy_engine = PrivacyEngine(
     epochs=3,
     max_grad_norm=0.1,
     target_epsilon=3,
-    ghost_clipping=True,  # The only change you need to make!
+    clipping_mode="ghost",  # The only change you need to make!
 )
 privacy_engine.attach(optimizer)
 ```

@@ -14,10 +14,11 @@ import os
 
 import pytest
 import torch
-from torch import optim
 import torch.nn.functional as F
 import tqdm
 import transformers
+from ml_swissknife import utils
+from torch import optim
 
 from private_transformers import PrivacyEngine
 
@@ -29,12 +30,6 @@ if os.path.exists("/nlp/scr/lxuechen/cache/private_transformers"):
     CACHE_DIR = "/nlp/scr/lxuechen/cache/private_transformers"
 else:
     CACHE_DIR = None
-
-
-def _zip(*args, ):
-    for argi in args:
-        assert len(argi) == len(args[0])
-    return zip(*args)
 
 
 def _make_classification_data(num_micro_batches=2, micro_batch_size=4, seq_len=128, num_labels=2):
@@ -74,11 +69,11 @@ def _prepare_inputs(batch: dict):
 
 
 @pytest.mark.parametrize(
-    'ghost_clipping,model_name_or_path',
-    itertools.product([True, False], ['roberta-base', 'bert-base-cased', 'albert-base-v2'])
+    'clipping_mode,model_name_or_path',
+    itertools.product(["default", "ghost"], ['roberta-base', 'bert-base-cased', 'albert-base-v2'])
 )
-def test_classification(ghost_clipping: bool, model_name_or_path: str):
-    if ghost_clipping and 'albert' in model_name_or_path:
+def test_classification(clipping_mode: str, model_name_or_path: str):
+    if clipping_mode == "ghost" and 'albert' in model_name_or_path:
         pytest.skip("Ghost clipping does not support parameter sharing which occurs in ALBERT.")
 
     gc.collect()
@@ -131,7 +126,7 @@ def test_classification(ghost_clipping: bool, model_name_or_path: str):
         sample_size=1000,  # Any number suffices for testing.
         epochs=1,  # Any number suffices for testing.
         numerical_stability_constant=0.,  # Important!
-        ghost_clipping=ghost_clipping,
+        clipping_mode=clipping_mode,
     )
     privacy_engine.attach(optimizer=optimizer)
     optimizer.zero_grad()  # Clears summed_grad, so don't run unless necessary.
@@ -161,7 +156,7 @@ def test_classification(ghost_clipping: bool, model_name_or_path: str):
     summed_grad = [torch.zeros_like(param) for param in clone2_params]
     for i, batch in tqdm.tqdm(enumerate(batches, 1), desc="over batches"):
         batch = _prepare_inputs(batch)
-        for input_ids, labels in tqdm.tqdm(_zip(batch["input_ids"], batch["labels"]), desc="over samples"):
+        for input_ids, labels in tqdm.tqdm(utils.zip_(batch["input_ids"], batch["labels"]), desc="over samples"):
             optimizer.zero_grad(set_to_none=True)  # Clear previous grad each time!
             input_ids = input_ids[None, :]
             labels = labels[None]
@@ -173,7 +168,7 @@ def test_classification(ghost_clipping: bool, model_name_or_path: str):
             with torch.no_grad():
                 flat_unclipped_grad = torch.cat(tuple(param.grad.flatten() for param in clone2_params))
                 factor = torch.clamp_max(max_grad_norm / flat_unclipped_grad.norm(), 1.)
-                for si, pi in _zip(summed_grad, clone2_params):
+                for si, pi in utils.zip_(summed_grad, clone2_params):
                     si.add_(factor * pi.grad)
 
     result2 = [grad / batch_size for grad in summed_grad]
@@ -183,7 +178,7 @@ def test_classification(ghost_clipping: bool, model_name_or_path: str):
     gc.collect()
     torch.cuda.empty_cache()
 
-    for g1, g2, name in _zip(result1, result2, names):
+    for g1, g2, name in utils.zip_(result1, result2, names):
         try:
             torch.testing.assert_allclose(g1, g2, atol=1e-5, rtol=1e-6)
         except AssertionError as e:
@@ -192,10 +187,10 @@ def test_classification(ghost_clipping: bool, model_name_or_path: str):
 
 
 @pytest.mark.parametrize(
-    'ghost_clipping,tie_word_embeddings,model_name_or_path',
-    tuple(itertools.product([False, True], [False, True], ['gpt2', 'openai-gpt']))
+    'clipping_mode,tie_word_embeddings,model_name_or_path',
+    tuple(itertools.product(["ghost", "default"], [False, True], ['gpt2', 'openai-gpt']))
 )
-def test_generation(ghost_clipping, tie_word_embeddings, model_name_or_path):
+def test_generation(clipping_mode, tie_word_embeddings, model_name_or_path):
     gc.collect()
     torch.cuda.empty_cache()
 
@@ -207,7 +202,7 @@ def test_generation(ghost_clipping, tie_word_embeddings, model_name_or_path):
     max_grad_norm = 1
 
     # Catch expected failures.
-    with pytest.raises(ValueError) if ghost_clipping and tie_word_embeddings else contextlib.nullcontext():
+    with pytest.raises(ValueError) if clipping_mode == "ghost" and tie_word_embeddings else contextlib.nullcontext():
 
         # Set up model.
         config = transformers.AutoConfig.from_pretrained(model_name_or_path, cache_dir=CACHE_DIR)
@@ -233,7 +228,7 @@ def test_generation(ghost_clipping, tie_word_embeddings, model_name_or_path):
             sample_size=1000,  # Any number suffices for testing.
             epochs=1,  # Any number suffices for testing.
             numerical_stability_constant=0.,  # Important!
-            ghost_clipping=ghost_clipping,
+            clipping_mode=clipping_mode,
         )
         privacy_engine.attach(optimizer=optimizer)
         optimizer.zero_grad()  # Clears summed_grad, so don't run unless necessary.
@@ -275,7 +270,7 @@ def test_generation(ghost_clipping, tie_word_embeddings, model_name_or_path):
                 with torch.no_grad():
                     flat_unclipped_grad = torch.cat(tuple(param.grad.flatten() for param in clone2.parameters()))
                     factor = torch.clamp_max(max_grad_norm / flat_unclipped_grad.norm(), 1.)
-                    for si, pi in _zip(summed_grad, list(clone2.parameters())):
+                    for si, pi in utils.zip_(summed_grad, list(clone2.parameters())):
                         si.add_(factor * pi.grad)
         # Collect grads.
         result2 = torch.cat([si.flatten() for si in summed_grad]) / batch_size
@@ -288,10 +283,10 @@ def test_generation(ghost_clipping, tie_word_embeddings, model_name_or_path):
 
 
 @pytest.mark.parametrize(
-    'ghost_clipping,tie_word_embeddings,model_name_or_path',
-    tuple(itertools.product([False, True], [True], ['facebook/bart-base']))
+    'clipping_mode,tie_word_embeddings,model_name_or_path',
+    tuple(itertools.product(["ghost", "default"], [True], ['facebook/bart-base']))
 )
-def test_conditional_generation(ghost_clipping, tie_word_embeddings, model_name_or_path):
+def test_conditional_generation(clipping_mode: str, tie_word_embeddings, model_name_or_path):
     gc.collect()
     torch.cuda.empty_cache()
 
@@ -303,8 +298,7 @@ def test_conditional_generation(ghost_clipping, tie_word_embeddings, model_name_
     max_grad_norm = 1
 
     # Catch expected failures.
-    # TODO: Test the `ghost_clipping=True` case also.
-    with pytest.raises(ValueError) if ghost_clipping and tie_word_embeddings else contextlib.nullcontext():
+    with pytest.raises(ValueError) if clipping_mode == "ghost" and tie_word_embeddings else contextlib.nullcontext():
 
         # Set up model.
         config = transformers.AutoConfig.from_pretrained(model_name_or_path, cache_dir=CACHE_DIR)
@@ -334,7 +328,7 @@ def test_conditional_generation(ghost_clipping, tie_word_embeddings, model_name_
             sample_size=1000,  # Any number suffices for testing.
             epochs=1,  # Any number suffices for testing.
             numerical_stability_constant=0.,  # Important!
-            ghost_clipping=ghost_clipping,
+            clipping_mode=clipping_mode,
         )
         privacy_engine.attach(optimizer=optimizer)
         optimizer.zero_grad()  # Clears summed_grad, so don't run unless necessary.
@@ -366,7 +360,7 @@ def test_conditional_generation(ghost_clipping, tie_word_embeddings, model_name_
         for i, batch in tqdm.tqdm(enumerate(batches, 1), desc="over batches"):
             batch = _prepare_inputs(batch)
             for input_ids, decoder_input_ids in tqdm.tqdm(
-                _zip(batch["input_ids"], batch["decoder_input_ids"]),
+                utils.zip_(batch["input_ids"], batch["decoder_input_ids"]),
                 desc="over samples"
             ):
                 optimizer.zero_grad()  # Clear previous grad each time!
@@ -382,7 +376,7 @@ def test_conditional_generation(ghost_clipping, tie_word_embeddings, model_name_
                 with torch.no_grad():
                     flat_unclipped_grad = torch.cat(tuple(param.grad.flatten() for param in clone2_params))
                     factor = torch.clamp_max(max_grad_norm / flat_unclipped_grad.norm(), 1.)
-                    for si, pi in _zip(summed_grad, [param for param in clone2_params]):
+                    for si, pi in utils.zip_(summed_grad, [param for param in clone2_params]):
                         si.add_(factor * pi.grad)
         # Collect grads.
         result2 = torch.cat([si.flatten() for si in summed_grad]) / batch_size

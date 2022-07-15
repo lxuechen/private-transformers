@@ -4,7 +4,6 @@ from typing import Dict, Optional, Union
 
 from . import rdp_accounting
 
-ACCOUNTING_MODES = ('rdp', 'glw', 'all')
 DEFAULT_ALPHAS = tuple(1 + x / 10.0 for x in range(1, 100)) + tuple(range(12, 64))  # RDP.
 
 

@@ -17,7 +17,7 @@ from torch import nn
 
 from . import autograd_grad_sample, transformers_support
 from .accounting import accounting_manager
-from .types import BackwardHookMode
+from .settings import AccountingMode, BackwardHookMode, ClippingMode
 
 
 class PrivacyEngine(object):
@@ -46,7 +46,7 @@ class PrivacyEngine(object):
         record_snr: bool = True,
         named_params: Optional[Sequence] = None,
         numerical_stability_constant=1e-6,
-        ghost_clipping: bool = False,
+        clipping_mode=ClippingMode.default,
         accounting_mode="rdp",
         eps_error=0.05,
         **unused_kwargs,
@@ -72,7 +72,7 @@ class PrivacyEngine(object):
             named_params: Specifies which parameters need gradients;
                 defaults to use parameters which require grad in module.
             numerical_stability_constant: Small constant to avoid division by 0 when clipping.
-            ghost_clipping: Set this to True to use memory efficient ghost clipping.
+            clipping_mode: The clipping mode to use. One of 'default', 'ghost', 'per_layer', 'per_layer_percentile'.
             accounting_mode: The method of accounting privacy. One of (`rdp`, `glw`, `all`).
                 Meanings of shorthands:
                     - rdp: Account loss with RDP but perform conversion to approx-DP with a procedure defined in
@@ -86,8 +86,10 @@ class PrivacyEngine(object):
         del unused_kwargs
         super(PrivacyEngine, self).__init__()
 
-        if accounting_mode not in accounting_manager.ACCOUNTING_MODES:
-            raise ValueError(f"Unknown accounting mode: {accounting_mode}")
+        if clipping_mode not in ClippingMode.all():
+            raise ValueError(f"Unknown clipping mode {clipping_mode}. Expected one of {ClippingMode.all()}.")
+        if accounting_mode not in AccountingMode.all():
+            raise ValueError(f"Unknown accounting mode: {accounting_mode}. Expected one of {AccountingMode.all()}.")
         if epochs <= 0.0:
             raise ValueError(f"Number of training epochs cannot be non-positive, but found epochs={epochs}")
 
@@ -147,12 +149,10 @@ class PrivacyEngine(object):
 
         self._locked = False  # Lock the part where noisy gradients is created (in `self.step`) if True.
         self.numerical_stability_constant = numerical_stability_constant
-        self.ghost_clipping = ghost_clipping
-        if ghost_clipping:
-            # Prepare for first backward in ghost clipping.
-            autograd_grad_sample.set_hooks_mode(BackwardHookMode.ghost_norm)
-
-        transformers_support.forward_swapper(module=module)
+        self.clipping_mode = clipping_mode
+        if clipping_mode == ClippingMode.ghost:
+            autograd_grad_sample.set_hooks_mode(BackwardHookMode.ghost_norm)  # Prepare for first backward.
+        transformers_support.forward_swapper(module=module)  # Fix the position embeddings broadcast issue.
 
     def lock(self):
         """Run this after noisy clipped gradient is created to prevent tampering with it before parameter update."""
@@ -237,7 +237,7 @@ class PrivacyEngine(object):
         store_grads_path: Optional[str] = None,
         orthogonal_projection: Optional[torch.Tensor] = None
     ):
-        if self.ghost_clipping:
+        if self.clipping_mode == ClippingMode.ghost:
             if store_grads_path is not None or orthogonal_projection is not None:
                 raise ValueError(f"Projecting the gradients is not supported for ghost clipping.")
             self._ghost_step(loss=loss)
@@ -249,7 +249,7 @@ class PrivacyEngine(object):
     @torch.no_grad()
     def virtual_step(self, loss: torch.Tensor, scale=1.):
         """Virtual step function when there's gradient accumulation."""
-        if self.ghost_clipping:
+        if self.clipping_mode == ClippingMode.ghost:
             self._ghost_virtual_step(loss=loss)
         else:
             self._virtual_step(loss=loss, scale=scale)
@@ -530,7 +530,7 @@ class PrivacyEngine(object):
             accounting_mode = self.accounting_mode
 
         privacy_results = {}  # Contains stats from all modes.
-        if accounting_mode in ('all', 'rdp'):
+        if accounting_mode in (AccountingMode.all_, AccountingMode.rdp):
             try:
                 manager = accounting_manager.RDPManager(alphas=self.alphas)
                 privacy_results.update(
@@ -546,7 +546,7 @@ class PrivacyEngine(object):
                 if not lenient:
                     raise err
 
-        if accounting_mode in ('all', "glw"):
+        if accounting_mode in (AccountingMode.all_, AccountingMode.glw):
             try:
                 manager = accounting_manager.GLWManager(eps_error=self.eps_error)
                 privacy_results.update(
@@ -590,6 +590,6 @@ class PrivacyEngine(object):
             f"  sample_rate={self.sample_rate}, \n"
             f"  batch_size={self.batch_size}, \n"
             f"  accounting_mode={self.accounting_mode}, \n"
-            f"  ghost_clipping={self.ghost_clipping}\n"
+            f"  clipping_mode={self.clipping_mode}\n"
             f")"
         )

@@ -10,8 +10,8 @@ from typing import Tuple
 import torch
 import torch.nn as nn
 
+from .settings import BackwardHookMode
 from .supported_layers_grad_samplers import _supported_layers_grad_samplers
-from .types import BackwardHookMode
 
 # TODO(lxuechen): hooks mode should be settable based on the module.
 _hooks_disabled: bool = False

@@ -182,11 +182,10 @@ class PrivacyArguments:
         default="rdp", metadata={"help": "One of `rdp`, `glw`, `all`."}
     )
     non_private: str = field(default="no")
-    ghost_clipping: str = field(default="no")
+    clipping_mode: str = field(default="default")
 
     def __post_init__(self):
         self.non_private = self.non_private.lower() in ('y', 'yes')
-        self.ghost_clipping = self.ghost_clipping.lower() in ('y', 'yes')
 
 
 @dataclass

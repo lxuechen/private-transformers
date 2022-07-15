@@ -17,7 +17,7 @@ from torch import nn
 from torch.functional import F
 
 from . import autograd_grad_sample
-from .types import BackwardHookMode
+from .settings import BackwardHookMode
 
 
 def sum_over_all_but_batch_and_last_n(tensor: torch.Tensor, n_dims: int) -> torch.Tensor:

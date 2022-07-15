@@ -692,7 +692,7 @@ def main():
             target_epsilon=privacy_args.target_epsilon,
             target_delta=privacy_args.target_delta,
             accounting_mode=privacy_args.accounting_mode,
-            ghost_clipping=privacy_args.ghost_clipping,
+            clipping_mode=privacy_args.clipping_mode,
         )
         # Originally, it could have been null.
         privacy_args.noise_multiplier = privacy_engine.noise_multiplier
