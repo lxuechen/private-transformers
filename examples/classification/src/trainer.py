@@ -21,18 +21,18 @@ import collections
 import gc
 import json
 import os
-from typing import Dict, Optional, Any, Union
+from typing import Any, Dict, Optional, Sequence, Tuple, Union
 
-from packaging import version
-from ml_swissknife import utils
 import torch
-from torch import nn
 import torch.nn.functional as F
+import transformers
+from ml_swissknife import utils
+from packaging import version
+from torch import nn
 from torch.utils.data.dataloader import DataLoader
 from torch.utils.data.dataset import Dataset
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
-import transformers
 from transformers.file_utils import is_datasets_available, is_in_notebook, is_torch_tpu_available
 from transformers.integrations import (
     is_comet_available,
@@ -47,10 +47,7 @@ from transformers.trainer_callback import (
     DefaultFlowCallback,
     ProgressCallback,
 )
-from transformers.trainer_utils import IntervalStrategy, EvaluationStrategy
-from transformers.trainer_utils import (
-    TrainOutput,
-)
+from transformers.trainer_utils import EvaluationStrategy, IntervalStrategy, TrainOutput
 from transformers.utils import logging
 
 from .compiled_args import TrainingArguments
@@ -351,13 +348,37 @@ class Trainer(transformers.Trainer):
         logging_loss_scalar = 0.0
 
         # --- low rank analysis project ---
-        orthogonal_projection_path = self.auxiliary_args.orthogonal_projection_path
-        if orthogonal_projection_path is None:
-            orthogonal_projection = None
-        else:
+        callback = None  # Default; don't store gradients or perform projection.
+
+        if self.auxiliary_args.orthogonal_projection_path is not None:
+            state_dicts = torch.load(self.auxiliary_args.orthogonal_projection_path)
             # Kept on CPU during most of the time of training.
-            state_dicts = torch.load(orthogonal_projection_path)
             orthogonal_projection = state_dicts.get("eigenvectors")[:, :self.auxiliary_args.orthogonal_projection_rank]
+
+            def callback(privacy_engine):
+                """Orthogonally project flattened `.summed_grad` with projection matrix then fill this back."""
+                named_params = privacy_engine.named_params
+
+                # Collect.
+                flat_grad = []
+                for _, param in named_params:
+                    flat_grad.append(param.summed_grad.flatten())
+                    param.summed_grad = None  # Save memory.
+                flat_grad = torch.cat(flat_grad)
+
+                # Project.
+                P = orthogonal_projection  # noqa
+                if orthogonal_projection.device != flat_grad.device or orthogonal_projection.dtype != flat_grad.dtype:
+                    P = orthogonal_projection.to(flat_grad)  # noqa
+                Pt_flat_g = torch.matmul(P.t(), flat_grad)  # noqa
+                # Matrix multiplication with very large dimension (millions in this case) results in weird issues.
+                # In this case, `torch.matmul` fails due to calling some algo. Resorting to `torch.mm` for now.
+                flat_grad = torch.mm(orthogonal_projection, Pt_flat_g[:, None]).squeeze()
+
+                # Redistribute.
+                grads = utils.flat_to_shape(flat_tensor=flat_grad, shapes=[param.shape for _, param in named_params])
+                for (_, param), grad in utils.zip_(named_params, grads):
+                    param.summed_grad = grad
 
         if self.auxiliary_args.store_grads:
             store_grads_dir = utils.join(self.args.output_dir, 'grad_trajectory')
@@ -419,17 +440,18 @@ class Trainer(transformers.Trainer):
                         torch.nn.utils.clip_grad_norm_(model.parameters(), self.args.max_grad_norm)
                         optimizer.step()
                     else:
-                        if store_grads_dir is None:
-                            store_grads_path = None
-                        else:
-                            store_grads_path = utils.join(store_grads_dir, f'global_step_{self.global_step:06d}.ckpt')
+                        if store_grads_dir is not None:
+                            def callback(privacy_engine):
+                                """Store clipped gradients for spectrum analysis."""
+                                named_params = privacy_engine.privacy_engine
+                                flat_grad = torch.cat([param.summed_grad.flatten() for _, param in named_params])
+                                torch.save(
+                                    {"flat_grad": flat_grad.cpu().float()},
+                                    utils.join(store_grads_dir, f'global_step_{self.global_step:06d}.ckpt')
+                                )
 
                         vector_loss = losses.get("vector_loss")
-                        self.optimizer.step(
-                            loss=vector_loss,
-                            orthogonal_projection=orthogonal_projection,
-                            store_grads_path=store_grads_path,
-                        )
+                        self.optimizer.step(loss=vector_loss, callback=callback)
 
                     scheduler.step()
                     model.zero_grad(set_to_none=True)
