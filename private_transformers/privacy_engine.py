@@ -152,6 +152,8 @@ class PrivacyEngine(object):
         self.clipping_mode = clipping_mode
         if clipping_mode == ClippingMode.ghost:
             autograd_grad_sample.set_hooks_mode(BackwardHookMode.ghost_norm)  # Prepare for first backward.
+        else:
+            autograd_grad_sample.set_hooks_mode(BackwardHookMode.default)  # Extra guard.
         transformers_support.forward_swapper(module=module)  # Fix the position embeddings broadcast issue.
 
     def lock(self):

@@ -70,7 +70,7 @@ def _prepare_inputs(batch: dict):
 
 @pytest.mark.parametrize(
     'clipping_mode,model_name_or_path',
-    itertools.product(["default", "ghost"], ['roberta-base', 'bert-base-cased', 'albert-base-v2'])
+    itertools.product(["ghost", "default"], ['roberta-base', 'bert-base-cased', 'albert-base-v2'])
 )
 def test_classification(clipping_mode: str, model_name_or_path: str):
     if clipping_mode == "ghost" and 'albert' in model_name_or_path:
