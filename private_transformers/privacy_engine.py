@@ -17,6 +17,7 @@ from torch import nn
 
 from . import autograd_grad_sample, transformers_support
 from .accounting import accounting_manager
+from .types import BackwardHookMode
 
 
 class PrivacyEngine(object):
@@ -46,7 +47,6 @@ class PrivacyEngine(object):
         named_params: Optional[Sequence] = None,
         numerical_stability_constant=1e-6,
         ghost_clipping: bool = False,
-        # Accounting specifics.
         accounting_mode="rdp",
         eps_error=0.05,
         **unused_kwargs,
@@ -150,17 +150,20 @@ class PrivacyEngine(object):
         self.ghost_clipping = ghost_clipping
         if ghost_clipping:
             # Prepare for first backward in ghost clipping.
-            autograd_grad_sample.set_hooks_mode("ghost_norm")
+            autograd_grad_sample.set_hooks_mode(BackwardHookMode.ghost_norm)
 
         transformers_support.forward_swapper(module=module)
 
     def lock(self):
+        """Run this after noisy clipped gradient is created to prevent tampering with it before parameter update."""
         self._locked = True
 
     def unlock(self):
+        """Run this after parameter update to allow creation of noisy gradient for next step"""
         self._locked = False
 
     def attach(self, optimizer):
+        # `loss_reduction="sum"` super important.
         autograd_grad_sample.add_hooks(model=self.module, batch_first=True, loss_reduction="sum")
 
         # Override zero grad.
@@ -226,105 +229,6 @@ class PrivacyEngine(object):
         module.zero_grad = module.original_zero_grad
         delattr(module, "original_zero_grad")
 
-    # --- everything specific to ghost clipping ---
-    def _ghost_step(self, loss: torch.Tensor):
-        """Run double-backward on per-example loss, then sum up all gradients and noise it."""
-        if self._locked:  # Skip this gradient creation step if already created gradient and haven't stepped.
-            logging.warning("Attempted to step, but the engine is on lock.")
-            return
-
-        self._ghost_helper(loss)
-
-        # Add noise and scale by inverse batch size.
-        signals, noises = [], []
-        for name, param in self.named_params:
-            # This is only True when there are previous virtual steps.
-            # The .grad contains the summed clipped gradients of this batch.
-            # Summed clipped gradients of previous batches are in .summed_grad.
-            # When there's no gradient accumulation, .summed_grad is not created.
-            if hasattr(param, 'summed_grad'):
-                param.grad += param.summed_grad
-            if self.record_snr:
-                signals.append(param.grad.reshape(-1).norm(2).cpu())
-
-            if self.noise_multiplier > 0 and self.max_grad_norm > 0:
-                noise = torch.normal(
-                    mean=0,
-                    std=self.noise_multiplier * self.max_grad_norm,
-                    size=param.size(),
-                    device=param.device,
-                    dtype=param.dtype,
-                )
-                param.grad += noise
-                if self.record_snr:
-                    noises.append(noise.reshape(-1).norm(2).cpu())
-                del noise
-
-            param.grad /= self.batch_size
-
-        if self.record_snr and noises:
-            self.signal, self.noise = tuple(torch.stack(lst).norm(2).item() for lst in (signals, noises))
-            self.noise_limit = math.sqrt(self.num_params) * self.noise_multiplier * self.max_grad_norm
-            self.snr = self.signal / self.noise
-        else:
-            self.snr = math.inf  # Undefined!
-
-        self.lock()  # Make creating new gradients impossible, unless optimizer.step is called.
-
-    @torch.no_grad()
-    def _ghost_virtual_step(self, loss: torch.Tensor):
-        """Run double-backward on per-example loss, then accumulate loss."""
-        self._ghost_helper(loss)
-        for name, param in self.named_params:
-            if hasattr(param, 'summed_grad'):
-                param.summed_grad += param.grad
-            else:
-                param.summed_grad = param.grad
-
-            if hasattr(param, "grad"):
-                del param.grad
-            if hasattr(param, "norm_sample"):
-                del param.norm_sample
-            if hasattr(param, "grad_sample"):
-                del param.grad_sample
-
-    @torch.enable_grad()
-    def _ghost_helper(self, loss: torch.Tensor):
-        """Given per-example losses, do the double backward thing."""
-        if loss.dim() != 1:
-            raise ValueError(f"Expected `loss` to be a the per-example loss 1-D tensor.")
-
-        first_loss = loss.sum()
-        first_loss.backward(retain_graph=True)
-
-        # Prepare for second backward.
-        autograd_grad_sample.set_hooks_mode("ghost_grad")
-
-        # The first backward might have accumulated things we don't need into `.grad`;
-        #   remove it before the second pass to avoid accumulating garbage.
-        for name, param in self.named_params:
-            if hasattr(param, "grad"):
-                del param.grad
-
-        coef_sample = self.get_coef_sample()
-        second_loss = (coef_sample * loss).sum(dim=0)
-        second_loss.backward()
-
-        # Prepare for first backward (in the next round).
-        autograd_grad_sample.set_hooks_mode("ghost_norm")
-
-    def get_norm_sample(self):
-        """Get per-example norms."""
-        norm_sample = torch.stack([param.norm_sample for name, param in self.named_params], dim=0).norm(2, dim=0)
-        return norm_sample
-
-    def get_coef_sample(self):
-        """Get per-example gradient scaling factor for clipping."""
-        norm_sample = self.get_norm_sample()
-        return torch.clamp_max(self.max_grad_norm / (norm_sample + self.numerical_stability_constant), 1.)
-
-    # ---------------------------------------------
-
     @torch.no_grad()
     def step(
         self,
@@ -339,10 +243,7 @@ class PrivacyEngine(object):
             self._ghost_step(loss=loss)
         else:
             self._step(
-                loss=loss,
-                scale=scale,
-                store_grads_path=store_grads_path,
-                orthogonal_projection=orthogonal_projection
+                loss=loss, scale=scale, store_grads_path=store_grads_path, orthogonal_projection=orthogonal_projection
             )
 
     @torch.no_grad()
@@ -365,6 +266,123 @@ class PrivacyEngine(object):
                 if hasattr(param, "grad"):
                     del param.grad
 
+    def _create_noisy_clipped_gradient(self):
+        """Create noisy clipped gradient for `optimizer.step`.
+
+        Add noise and scale by inverse batch size.
+
+        Notes:
+            In ghost clipping, `summed_grad` stores previous micro-batches; `grad` stores current micro-batch.
+            In default clipping, `summed_grad` stores summed clipped gradients for all micro-batches.
+        """
+
+        signals, noises = [], []
+        for name, param in self.named_params:
+            assert hasattr(param, 'summed_grad'), (
+                f"Internal error: PrivacyEngine should not reach here; "
+                f"this means either "
+                f"1) there is parameter which requires gradient, but was not used in the computational graph, "
+                f"or 2) the backward hook registry failed to find the corresponding module to register."
+            )
+            param.grad = param.summed_grad  # Ultra important to override `.grad`.
+
+            if self.record_snr:
+                signals.append(param.grad.reshape(-1).norm(2))
+
+            if self.noise_multiplier > 0 and self.max_grad_norm > 0:
+                noise = torch.normal(
+                    mean=0,
+                    std=self.noise_multiplier * self.max_grad_norm,
+                    size=param.size(),
+                    device=param.device,
+                    dtype=param.dtype,
+                )
+                param.grad += noise
+                if self.record_snr:
+                    noises.append(noise.reshape(-1).norm(2))
+                del noise
+
+            param.grad /= self.batch_size
+
+        if self.record_snr and len(noises) > 0:
+            self.signal, self.noise = tuple(torch.stack(lst).norm(2).item() for lst in (signals, noises))
+            self.noise_limit = math.sqrt(self.num_params) * self.noise_multiplier * self.max_grad_norm
+            self.snr = self.signal / self.noise
+        else:
+            self.snr = math.inf  # Undefined!
+
+        self.lock()  # Make creating new gradients impossible, unless optimizer.step is called.
+
+    # --- ghost clipping ---
+    def _ghost_step(self, loss: torch.Tensor):
+        """Run double-backward on per-example loss, then sum up all gradients and noise it."""
+        if self._locked:  # Skip this gradient creation step if already created gradient and haven't stepped.
+            logging.warning("Attempted to step, but the engine is on lock.")
+            return
+
+        self._ghost_virtual_step(loss)
+        self._create_noisy_clipped_gradient()
+
+    @torch.no_grad()
+    def _ghost_virtual_step(self, loss: torch.Tensor):
+        """Backward twice to accumulate summed clipped gradients in `.summed_grad`.
+
+        We accumulate gradients in `.summed_grad` for micro-batching.
+        All of this copying actually creates a new 2x memory overhead.
+        """
+        self._double_backward(loss)
+
+        for name, param in self.named_params:
+            if hasattr(param, 'summed_grad'):
+                param.summed_grad += param.grad
+            else:
+                param.summed_grad = param.grad
+
+            if hasattr(param, "grad"):
+                del param.grad
+            if hasattr(param, "norm_sample"):
+                del param.norm_sample
+            if hasattr(param, "grad_sample"):
+                del param.grad_sample
+
+    @torch.enable_grad()
+    def _double_backward(self, loss: torch.Tensor):
+        """Given per-example losses, backward twice to accumulate summed clipped gradients in `.grad`."""
+        if loss.dim() != 1:
+            raise ValueError(
+                f"Expected `loss` to be the per-example loss 1-D tensor, but got a tensor with dims={loss.dim()}."
+            )
+
+        first_loss = loss.sum()
+        first_loss.backward(retain_graph=True)
+
+        # Prepare for second backward.
+        autograd_grad_sample.set_hooks_mode(BackwardHookMode.ghost_grad)
+
+        # The first backward might have accumulated things we don't need into `.grad`;
+        # remove it before the second pass to avoid accumulating garbage.
+        for name, param in self.named_params:
+            if hasattr(param, "grad"):
+                del param.grad
+
+        coef_sample = self.get_coef_sample()
+        second_loss = (coef_sample * loss).sum(dim=0)
+        second_loss.backward()
+
+        # Prepare for first backward (in the next round).
+        autograd_grad_sample.set_hooks_mode(BackwardHookMode.ghost_norm)
+
+    def get_coef_sample(self) -> torch.Tensor:
+        """Get per-example gradient scaling factor for clipping."""
+        norm_sample = self.get_norm_sample()
+        return torch.clamp_max(self.max_grad_norm / (norm_sample + self.numerical_stability_constant), 1.)
+
+    def get_norm_sample(self) -> torch.Tensor:
+        """Get per-example gradient norms."""
+        norm_sample = torch.stack([param.norm_sample for name, param in self.named_params], dim=0).norm(2, dim=0)
+        return norm_sample
+
+    # --- default clipping ---
     def _step(
         self,
         loss,
@@ -409,6 +427,7 @@ class PrivacyEngine(object):
             torch.save({"flat_grad": flat_grad.cpu().float()}, store_grads_path)
 
         if orthogonal_projection is not None:
+            # TODO: Wrap this in a function of its own.
             flat_grad = _get_flat_grad()
             if orthogonal_projection.device != flat_grad.device or orthogonal_projection.dtype != flat_grad.dtype:
                 orthogonal_projection = orthogonal_projection.to(flat_grad)
@@ -423,44 +442,7 @@ class PrivacyEngine(object):
                 param.summed_grad = grad
         # ---
 
-        # Add noise and scale by inverse batch size.
-        signals, noises = [], []
-        for name, param in self.named_params:
-            if hasattr(param, 'summed_grad'):  # Ultra important to override `.grad`.
-                param.grad = param.summed_grad.to(param.dtype)
-            else:
-                logging.fatal(
-                    f"PrivacyEngine should not reach here; "
-                    f"this means either "
-                    f"1) there is parameter which requires gradient, but was not used in the computational graph, or "
-                    f"2) the backward hook registry failed to find the corresponding module to register."
-                )
-            if self.record_snr:
-                signals.append(param.grad.reshape(-1).norm(2).cpu())
-
-            if self.noise_multiplier > 0 and self.max_grad_norm > 0:
-                noise = torch.normal(
-                    mean=0,
-                    std=self.noise_multiplier * self.max_grad_norm * scale,
-                    size=param.size(),
-                    device=param.device,
-                    dtype=param.dtype,
-                )
-                if self.record_snr:
-                    noises.append(noise.reshape(-1).norm(2).cpu())
-                param.grad += noise
-                del noise
-
-            param.grad /= self.batch_size
-
-        if self.record_snr and noises:
-            self.signal, self.noise = tuple(torch.stack(lst).norm(2).item() for lst in (signals, noises))
-            self.noise_limit = math.sqrt(self.num_params) * self.noise_multiplier * self.max_grad_norm
-            self.snr = self.signal / self.noise
-        else:
-            self.snr = math.inf  # Undefined!
-
-        self.lock()  # Make creating new gradients impossible, unless optimizer.step is called.
+        self._create_noisy_clipped_gradient()
 
     def _virtual_step(self, loss, scale):
         self._accumulate_summed_grad(loss=loss, scale=scale)
@@ -487,7 +469,7 @@ class PrivacyEngine(object):
                 error.args = (args[0] + extra_msg, *args[1:])
                 raise error
             norm = param.grad_sample.reshape(batch_size, -1).norm(2, dim=1)
-            norm_sample.append(norm.cpu())
+            norm_sample.append(norm)
 
         # The stack operation here is prone to error, thus clarify where the error is.
         try:

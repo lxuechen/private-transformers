@@ -15,6 +15,7 @@ from torch import nn
 from torch.functional import F
 
 from . import autograd_grad_sample
+from .types import BackwardHookMode
 
 
 def sum_over_all_but_batch_and_last_n(tensor: torch.Tensor, n_dims: int) -> torch.Tensor:
@@ -27,16 +28,19 @@ def sum_over_all_but_batch_and_last_n(tensor: torch.Tensor, n_dims: int) -> torc
 
 def _light_linear_weight_norm_sample(A, B) -> torch.Tensor:
     """Compute gradient sample norm for the weight matrix in a linear layer."""
-    if A.dim() == 2:
+    if A.dim() == 2 and B.dim() == 2:
         return _light_linear_weight_norm_sample_non_sequential(A, B)
-    elif A.dim() == 3:
+    elif A.dim() == 3 and B.dim() == 3:
         return _light_linear_weight_norm_sample_sequential(A, B)
     else:
         raise ValueError(f"Unexpected input shape: {A.size()}, grad_output shape: {B.size()}")
 
 
 def _light_linear_weight_norm_sample_sequential(A, B):
-    """Lightweight norm computation in ghost clipping."""
+    """Lightweight norm computation in ghost clipping.
+
+    Linear algebra identity trick -- Eq. 3 in the paper.
+    """
     return torch.sqrt(
         (torch.bmm(A, A.transpose(-1, -2)) * torch.bmm(B, B.transpose(-1, -2))).sum(dim=(1, 2))
     )
@@ -61,7 +65,9 @@ def _create_or_extend_grad_sample(param: torch.Tensor, grad_sample: torch.Tensor
     if hasattr(param, "requires_grad") and not param.requires_grad:
         return
 
-    assert grad_sample.shape[1:] == param.shape, f"grad_sample.size()={grad_sample.size()}, param.size()={param.size()}"
+    assert grad_sample.shape[1:] == param.shape, (
+        f"Internal error: grad_sample.size()={grad_sample.size()}, param.size()={param.size()}"
+    )
 
     # Warning: When a parameter with `grad_sample` is reused, the per-sample gradients are accumulated.
     if hasattr(param, "grad_sample"):
@@ -75,14 +81,17 @@ def _create_or_extend_norm_sample(param: torch.Tensor, norm_sample: torch.Tensor
     if not hasattr(param, "requires_grad") or not param.requires_grad:
         return
 
-    if autograd_grad_sample.get_hooks_mode() == "ghost_norm":
-        if hasattr(param, 'norm_sample'):
-            raise ValueError("Ghost clipping does not support parameter sharing. "
-                             "Parameter sharing may be due to default parameter sharing between lm_head and embedding."
-                             "Please use a model without parameter sharing for ghost clipping.")
-        param.norm_sample = norm_sample
-    else:  # mode == "grad"; should not get here.
-        raise ValueError("Internal error: Trying to extend `norm_sample` when `_hooks_mode='ghost_grad'`.")
+    assert autograd_grad_sample.get_hooks_mode() == BackwardHookMode.ghost_norm, (
+        f"Internal error: Trying to extend `norm_sample` when "
+        f"`_hooks_mode='{autograd_grad_sample.get_hooks_mode()}'`."
+    )
+    if hasattr(param, 'norm_sample'):
+        raise ValueError(
+            "Ghost clipping does not support parameter sharing. "
+            "Parameter sharing may be due to default parameter sharing between lm_head and embedding."
+            "Please use a model without parameter sharing for ghost clipping."
+        )
+    param.norm_sample = norm_sample
 
 
 def _compute_linear_grad_sample(layer: nn.Linear, A: torch.Tensor, B: torch.Tensor, batch_dim: int = 0) -> None:
@@ -90,13 +99,8 @@ def _compute_linear_grad_sample(layer: nn.Linear, A: torch.Tensor, B: torch.Tens
 
     This function is written in an unusually bespoke way to avoid using `torch.einsum`.
     """
-    if autograd_grad_sample.fp16():
-        if B.dtype != torch.half:
-            B = B.half()
-        if A.dtype != torch.half:
-            A = A.half()
 
-    if autograd_grad_sample.get_hooks_mode() == "ghost_norm":
+    if autograd_grad_sample.get_hooks_mode() == BackwardHookMode.ghost_norm:
         _create_or_extend_norm_sample(layer.weight, _light_linear_weight_norm_sample(A, B))
 
         if layer.bias is not None:
@@ -119,20 +123,10 @@ def _compute_linear_grad_sample(layer: nn.Linear, A: torch.Tensor, B: torch.Tens
             _create_or_extend_grad_sample(layer.bias, grad_bias, batch_dim)
 
 
-def _compute_norm_grad_sample(
-    layer: nn.LayerNorm,
-    A: torch.Tensor,
-    B: torch.Tensor,
-    batch_dim: int = 0,
-) -> None:
+def _compute_norm_grad_sample(layer: nn.LayerNorm, A: torch.Tensor, B: torch.Tensor, batch_dim: int = 0) -> None:
     """Computes per sample gradients for normalization layers."""
-    if autograd_grad_sample.fp16():
-        if A.dtype != torch.half:
-            A = A.half()
-        if B.dtype != torch.half:
-            B = B.half()
 
-    is_backward_ghost_norm = autograd_grad_sample.get_hooks_mode() == "ghost_norm"
+    is_backward_ghost_norm = autograd_grad_sample.get_hooks_mode() == BackwardHookMode.ghost_norm
 
     grad_sample = sum_over_all_but_batch_and_last_n(
         F.layer_norm(A, layer.normalized_shape, eps=layer.eps) * B,
@@ -155,11 +149,7 @@ def _compute_norm_grad_sample(
 def _compute_embedding_grad_sample(layer: nn.Embedding, A: torch.Tensor, B: torch.Tensor, batch_dim: int = 0) -> None:
     """Computes per sample gradients for `nn.Embedding` layer."""
 
-    if autograd_grad_sample.fp16():
-        if B.dtype != torch.half:
-            B = B.half()
-
-    if autograd_grad_sample.get_hooks_mode() == "ghost_norm":
+    if autograd_grad_sample.get_hooks_mode() == BackwardHookMode.ghost_norm:
         not_AAt: torch.Tensor = ~A[:, :, None].eq(A[:, None, :])
         # Clear the contribution to the norm of the gradient for the padding token.
         #   In vanilla backpropagation, this particular embedding doesn't contribute to the gradient anyway.
@@ -186,13 +176,7 @@ def _compute_embedding_grad_sample(layer: nn.Embedding, A: torch.Tensor, B: torc
 def _custom_compute_conv1d_grad_sample(layer: nn.Linear, A: torch.Tensor, B: torch.Tensor, batch_dim: int = 0):
     """Computes per sample gradients for `transformers.modeling_utils.Conv1D` layer."""
 
-    if autograd_grad_sample.fp16():
-        if B.dtype != torch.half:
-            B = B.half()
-        if A.dtype != torch.half:
-            A = A.half()
-
-    if autograd_grad_sample.get_hooks_mode() == "ghost_norm":
+    if autograd_grad_sample.get_hooks_mode() == BackwardHookMode.ghost_norm:
         _create_or_extend_norm_sample(layer.weight, _light_linear_weight_norm_sample(A, B))
 
         if layer.bias is not None:

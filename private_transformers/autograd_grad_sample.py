@@ -11,58 +11,29 @@ import torch
 import torch.nn as nn
 
 from .supported_layers_grad_samplers import _supported_layers_grad_samplers
+from .types import BackwardHookMode
 
-# work-around for https://github.com/pytorch/pytorch/issues/25723
+# TODO(lxuechen): hooks mode should be settable based on the module.
 _hooks_disabled: bool = False
-_fp16 = False
-_hooks_mode = "default"
+_hooks_mode = BackwardHookMode.default
 
 
 def set_hooks_mode(mode):
-    if mode not in ("ghost_norm", "ghost_grad", "default"):
-        raise ValueError(f"Unknown mode for hooks: {mode}; expected one of `ghost_norm`, `ghost_grad`, `default`.")
+    if mode not in BackwardHookMode.all():
+        raise ValueError(f"Unknown mode for hooks: {mode}; expected one of {BackwardHookMode.all()}.")
 
     global _hooks_mode
-    _hooks_mode = mode
+    _hooks_mode = mode  # Set mode.
 
-    if _hooks_mode == "ghost_grad":
+    if _hooks_mode == BackwardHookMode.ghost_grad:  # Second backward pass of ghost clipping doesn't need hooks.
         disable_hooks()
-    elif _hooks_mode == "ghost_norm":
+    elif _hooks_mode == BackwardHookMode.ghost_norm:  # First backward pass of ghost clipping needs to accumulate norms.
         enable_hooks()
 
 
 def get_hooks_mode():
     global _hooks_mode
     return _hooks_mode
-
-
-def enable_fp16():
-    global _fp16
-    _fp16 = True
-
-
-def disable_fp16():
-    global _fp16
-    _fp16 = False
-
-
-def fp16():
-    return _fp16
-
-
-def has_no_param(module: nn.Module) -> bool:
-    """
-    Checks if a module does not have any parameters.
-
-    Args:
-        module: The module on which this function is being evaluated.
-
-    Returns:
-        Flag indicating if the provided module does not have any
-        parameters.
-    """
-    has_params = any(p is not None for p in module.parameters(recurse=False))
-    return not has_params
 
 
 def requires_grad(module: nn.Module, recurse: bool = False) -> bool:
@@ -99,7 +70,6 @@ def add_hooks(
     model: nn.Module,
     loss_reduction: str = "mean",
     batch_first: bool = True,
-    fp16=False,
 ):
     r"""
     Adds hooks to model to save activations and backprop values.
@@ -118,14 +88,11 @@ def add_hooks(
             ``[batch_size, ..., ...]``. Set to True if batch appears in first
             dimension else set to False (``batch_first=False`` implies that the
             batch is always in the second dimension).
-        fp16: Perform backward computation in fp16 for as much as possible if True.
     """
     if hasattr(model, "autograd_grad_sample_hooks"):
         raise ValueError("Trying to add hooks twice to the same model")
 
     enable_hooks()
-    if fp16:
-        enable_fp16()
 
     handles = []
     for name, layer in model.named_modules():
@@ -141,9 +108,7 @@ def add_hooks(
                 handles.append(layer.register_forward_hook(_capture_activations))
 
                 def this_backward(this_layer, grad_input, grad_output):
-                    return _capture_backprops(
-                        this_layer, grad_input, grad_output, loss_reduction, batch_first
-                    )
+                    return _capture_backprops(this_layer, grad_input, grad_output, loss_reduction, batch_first)
 
                 # Starting with 1.8.0, use `register_full_backward_hook`.
                 handles.append(layer.register_backward_hook(this_backward))
