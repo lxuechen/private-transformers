@@ -66,11 +66,7 @@ def get_layer_type(layer: nn.Module) -> str:
     return layer.__class__.__name__
 
 
-def add_hooks(
-    model: nn.Module,
-    loss_reduction: str = "mean",
-    batch_first: bool = True,
-):
+def add_hooks(model: nn.Module, loss_reduction: str = "mean"):
     r"""
     Adds hooks to model to save activations and backprop values.
     The hooks will
@@ -80,14 +76,8 @@ def add_hooks(
 
     Args:
         model: Model to which hooks are added.
-        loss_reduction: Indicates if the loss reduction (for aggregating the
-            gradients) is a sum or a mean operation. Can take values ``sum`` or
-            ``mean``.
-        batch_first: Flag to indicate if the input tensor to the corresponding module
-            has the first dimension represent the batch, for example of shape
-            ``[batch_size, ..., ...]``. Set to True if batch appears in first
-            dimension else set to False (``batch_first=False`` implies that the
-            batch is always in the second dimension).
+        loss_reduction: Indicates if the loss reduction (for aggregating the gradients) is a sum or a mean operation.
+            Can take values ``sum`` or ``mean``.
     """
     if hasattr(model, "autograd_grad_sample_hooks"):
         raise ValueError("Trying to add hooks twice to the same model")
@@ -108,7 +98,7 @@ def add_hooks(
                 handles.append(layer.register_forward_hook(_capture_activations))
 
                 def this_backward(this_layer, grad_input, grad_output):
-                    return _capture_backprops(this_layer, grad_input, grad_output, loss_reduction, batch_first)
+                    return _capture_backprops(this_layer, grad_input, grad_output, loss_reduction)
 
                 # Starting with 1.8.0, use `register_full_backward_hook`.
                 handles.append(layer.register_backward_hook(this_backward))
@@ -169,15 +159,14 @@ def _capture_backprops(
     layer: nn.Module,
     inputs: Tuple[torch.Tensor],
     outputs: Tuple[torch.Tensor],
-    loss_reduction: str,
-    batch_first: bool,
+    loss_reduction: str
 ):
     """Backward hook handler captures grad_outputs."""
     backprops = outputs[0].detach()
-    _compute_grad_sample(layer, backprops, loss_reduction, batch_first)
+    _compute_grad_sample(layer, backprops, loss_reduction)
 
 
-def _compute_grad_sample(layer: nn.Module, backprops: torch.Tensor, loss_reduction: str, batch_first: bool):
+def _compute_grad_sample(layer: nn.Module, backprops: torch.Tensor, loss_reduction: str):
     """Computes per-sample gradients with respect to the parameters."""
     layer_type = get_layer_type(layer)
     if (
@@ -191,20 +180,16 @@ def _compute_grad_sample(layer: nn.Module, backprops: torch.Tensor, loss_reducti
         return
 
     if not hasattr(layer, "activations"):
-        raise ValueError(
-            f"No activations detected for {type(layer)},"
-            " run forward after add_hooks(model)"
-        )
+        raise ValueError(f"No activations detected for {type(layer)}, run forward after add_hooks(model)")
 
     # Outside of the LSTM there is "batch_first" but not for the Linear inside the LSTM
-    batch_dim = 0 if batch_first else 1
     if isinstance(layer.activations, list):
         A = layer.activations.pop()
     else:
         A = layer.activations
 
     if not hasattr(layer, "max_batch_len"):
-        layer.max_batch_len = _get_batch_size(layer, A, batch_dim)
+        layer.max_batch_len = _get_batch_size(layer, A)
 
     n = layer.max_batch_len
     if loss_reduction == "mean":
@@ -212,34 +197,24 @@ def _compute_grad_sample(layer: nn.Module, backprops: torch.Tensor, loss_reducti
     elif loss_reduction == "sum":
         B = backprops
     else:
-        raise ValueError(
-            f"loss_reduction = {loss_reduction}. Only 'sum' and 'mean' losses are supported"
-        )
+        raise ValueError(f"loss_reduction = {loss_reduction}. Only 'sum' and 'mean' losses are supported")
 
-    # rearrange the blob dimensions
-    if batch_dim != 0:
-        A = A.permute([batch_dim] + [x for x in range(A.dim()) if x != batch_dim])
-        B = B.permute([batch_dim] + [x for x in range(B.dim()) if x != batch_dim])
-    # compute grad sample for  individual layers
-    compute_layer_grad_sample = _supported_layers_grad_samplers.get(
-        get_layer_type(layer)
-    )
-
+    # compute grad sample for individual layers
+    compute_layer_grad_sample = _supported_layers_grad_samplers.get(get_layer_type(layer))
     compute_layer_grad_sample(layer, A, B)
 
-    if (
-        not isinstance(layer.activations, list) or len(layer.activations) == 0
-    ) and hasattr(layer, "max_batch_len"):
+    if (not isinstance(layer.activations, list) or len(layer.activations) == 0) and hasattr(layer, "max_batch_len"):
         del layer.max_batch_len
 
 
-def _get_batch_size(layer: nn.Module, grad_sample: torch.Tensor, batch_dim: int) -> int:
+def _get_batch_size(layer: nn.Module, grad_sample: torch.Tensor) -> int:
     r"""
     Computes and returns the maximum batch size which is the maximum of the dimension values
     along 'batch_dim' axis over layer.activations + [grad_sample], where layer.activations is
     a list. If layer.activations is a not a list, then return grad_sample.shape[batch_dim].
     """
 
+    batch_dim = 0
     max_batch_len = 0
     if isinstance(layer.activations, list):
         for out in layer.activations:

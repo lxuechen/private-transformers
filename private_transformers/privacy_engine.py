@@ -164,7 +164,7 @@ class PrivacyEngine(object):
 
     def attach(self, optimizer):
         # `loss_reduction="sum"` super important.
-        autograd_grad_sample.add_hooks(model=self.module, batch_first=True, loss_reduction="sum")
+        autograd_grad_sample.add_hooks(model=self.module, loss_reduction="sum")
 
         # Override zero grad.
         def dp_zero_grad(_self, *args, **kwargs):

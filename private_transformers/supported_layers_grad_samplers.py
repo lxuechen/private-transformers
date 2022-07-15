@@ -60,7 +60,7 @@ def _light_linear_bias_norm_sample(B):
         raise ValueError(f"Unexpected grad_output shape: {B.size()}")
 
 
-def _create_or_extend_grad_sample(param: torch.Tensor, grad_sample: torch.Tensor, batch_dim: int) -> None:
+def _create_or_extend_grad_sample(param: torch.Tensor, grad_sample: torch.Tensor) -> None:
     """Creates a ``grad_sample`` attribute in the given parameter or accumulate the existing tensor."""
     if hasattr(param, "requires_grad") and not param.requires_grad:
         return
@@ -94,7 +94,7 @@ def _create_or_extend_norm_sample(param: torch.Tensor, norm_sample: torch.Tensor
     param.norm_sample = norm_sample
 
 
-def _compute_linear_grad_sample(layer: nn.Linear, A: torch.Tensor, B: torch.Tensor, batch_dim: int = 0) -> None:
+def _compute_linear_grad_sample(layer: nn.Linear, A: torch.Tensor, B: torch.Tensor) -> None:
     """Computes per sample gradients for `nn.Linear` layer.
 
     This function is written in an unusually bespoke way to avoid using `torch.einsum`.
@@ -117,13 +117,13 @@ def _compute_linear_grad_sample(layer: nn.Linear, A: torch.Tensor, B: torch.Tens
                 f"Expected both grad_output and input to have dimension 2 or 3, "
                 f"but found len(grad_output.dim())={len(B.dim())}, len(input.dim())={len(A.dim())}"
             )
-        _create_or_extend_grad_sample(layer.weight, grad_weight, batch_dim)
+        _create_or_extend_grad_sample(layer.weight, grad_weight)
 
         if layer.bias is not None:
-            _create_or_extend_grad_sample(layer.bias, grad_bias, batch_dim)
+            _create_or_extend_grad_sample(layer.bias, grad_bias)
 
 
-def _compute_norm_grad_sample(layer: nn.LayerNorm, A: torch.Tensor, B: torch.Tensor, batch_dim: int = 0) -> None:
+def _compute_norm_grad_sample(layer: nn.LayerNorm, A: torch.Tensor, B: torch.Tensor) -> None:
     """Computes per sample gradients for normalization layers."""
 
     is_backward_ghost_norm = autograd_grad_sample.get_hooks_mode() == BackwardHookMode.ghost_norm
@@ -136,17 +136,17 @@ def _compute_norm_grad_sample(layer: nn.LayerNorm, A: torch.Tensor, B: torch.Ten
         norm_sample = grad_sample.flatten(start_dim=1).norm(2, dim=1)
         _create_or_extend_norm_sample(layer.weight, norm_sample)
     else:
-        _create_or_extend_grad_sample(layer.weight, grad_sample, batch_dim)
+        _create_or_extend_grad_sample(layer.weight, grad_sample)
 
     grad_sample = sum_over_all_but_batch_and_last_n(B, layer.bias.dim())
     if is_backward_ghost_norm:
         norm_sample = grad_sample.flatten(start_dim=1).norm(2, dim=1)
         _create_or_extend_norm_sample(layer.bias, norm_sample)
     else:
-        _create_or_extend_grad_sample(layer.bias, grad_sample, batch_dim)
+        _create_or_extend_grad_sample(layer.bias, grad_sample)
 
 
-def _compute_embedding_grad_sample(layer: nn.Embedding, A: torch.Tensor, B: torch.Tensor, batch_dim: int = 0) -> None:
+def _compute_embedding_grad_sample(layer: nn.Embedding, A: torch.Tensor, B: torch.Tensor) -> None:
     """Computes per sample gradients for `nn.Embedding` layer."""
 
     if autograd_grad_sample.get_hooks_mode() == BackwardHookMode.ghost_norm:
@@ -170,10 +170,10 @@ def _compute_embedding_grad_sample(layer: nn.Embedding, A: torch.Tensor, B: torc
         if layer.padding_idx is not None:
             # `grad_sample` has size (batch_size, num_vocab, embedding_dim).
             grad_sample[:, layer.padding_idx, :] = 0.
-        _create_or_extend_grad_sample(layer.weight, grad_sample, batch_dim)
+        _create_or_extend_grad_sample(layer.weight, grad_sample)
 
 
-def _custom_compute_conv1d_grad_sample(layer: nn.Linear, A: torch.Tensor, B: torch.Tensor, batch_dim: int = 0):
+def _custom_compute_conv1d_grad_sample(layer: nn.Linear, A: torch.Tensor, B: torch.Tensor):
     """Computes per sample gradients for `transformers.modeling_utils.Conv1D` layer."""
 
     if autograd_grad_sample.get_hooks_mode() == BackwardHookMode.ghost_norm:
@@ -182,10 +182,10 @@ def _custom_compute_conv1d_grad_sample(layer: nn.Linear, A: torch.Tensor, B: tor
         if layer.bias is not None:
             _create_or_extend_norm_sample(layer.bias, B.sum(dim=1).norm(2, dim=1))
     else:
-        _create_or_extend_grad_sample(layer.weight, torch.bmm(A.permute(0, 2, 1), B), batch_dim)
+        _create_or_extend_grad_sample(layer.weight, torch.bmm(A.permute(0, 2, 1), B))
 
         if layer.bias is not None:
-            _create_or_extend_grad_sample(layer.bias, B.sum(dim=1), batch_dim)
+            _create_or_extend_grad_sample(layer.bias, B.sum(dim=1))
 
 
 _supported_layers_grad_samplers = {
