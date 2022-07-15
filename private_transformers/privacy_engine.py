@@ -9,7 +9,7 @@ import collections
 import logging
 import math
 import types
-from typing import Dict, Optional, Sequence, Union
+from typing import Callable, Dict, Optional, Sequence, Union
 
 import torch
 from ml_swissknife import utils
@@ -236,17 +236,18 @@ class PrivacyEngine(object):
         self,
         loss: torch.Tensor,
         scale=1.,
-        store_grads_path: Optional[str] = None,
-        orthogonal_projection: Optional[torch.Tensor] = None
+        # Function that takes in named_params and does something.
+        # This option was included to help with another spectrum analysis project.
+        callback: Optional[Callable] = None,
     ):
         if self.clipping_mode == ClippingMode.ghost:
-            if store_grads_path is not None or orthogonal_projection is not None:
-                raise ValueError(f"Projecting the gradients is not supported for ghost clipping.")
+            if callback is not None:
+                raise ValueError("Ghost clipping does not support `callback` in `optimizer.step`.")
+            if scale != 1.:
+                raise ValueError("Ghost clipping does not support mixed-precision training.")
             self._ghost_step(loss=loss)
         else:
-            self._step(
-                loss=loss, scale=scale, store_grads_path=store_grads_path, orthogonal_projection=orthogonal_projection
-            )
+            self._step(loss=loss, scale=scale, callback=callback)
 
     @torch.no_grad()
     def virtual_step(self, loss: torch.Tensor, scale=1.):
@@ -389,8 +390,7 @@ class PrivacyEngine(object):
         self,
         loss,
         scale,
-        store_grads_path,
-        orthogonal_projection
+        callback: Optional[Callable] = None,
     ):
         """Create noisy gradients.
 
@@ -405,9 +405,6 @@ class PrivacyEngine(object):
         Args:
             loss: The per-example loss; a 1-D tensor.
             scale: The loss up-scaling factor in amp. In full precision, this arg isn't useful.
-            store_grads_path: Path to store gradients flattened and moved to CPU. Doesn't do anything if None.
-            orthogonal_projection: len(param) x len(param) sized orthogonal projection matrix.
-                Project the summed gradients to this subspace. Doesn't do anything if None.
         """
         if self._locked:  # Skip this gradient creation step if already created gradient and haven't stepped.
             logging.warning("Attempted to step, but the engine is on lock.")
@@ -420,30 +417,8 @@ class PrivacyEngine(object):
         self.med_clip = coef_sample.median().item()
 
         # --- low rank analysis project ---
-        def _get_flat_grad():
-            """Get the flat summed clipped gradients."""
-            return torch.cat([param.summed_grad.flatten() for _, param in self.named_params])
-
-        if store_grads_path is not None:  # Store the flat summed clipped gradients.
-            flat_grad = _get_flat_grad()
-            torch.save({"flat_grad": flat_grad.cpu().float()}, store_grads_path)
-
-        if orthogonal_projection is not None:
-            # TODO: Wrap this in a function of its own.
-            flat_grad = _get_flat_grad()
-            if orthogonal_projection.device != flat_grad.device or orthogonal_projection.dtype != flat_grad.dtype:
-                orthogonal_projection = orthogonal_projection.to(flat_grad)
-            Pg = torch.matmul(orthogonal_projection.T, flat_grad)
-            # TODO: Matrix multiplication with very large dimension (millions in this case) results in weird issues.
-            #   In this case, `torch.matmul` fails due to calling some algo. Resorting to `torch.mm` for now.
-            flat_grad = torch.mm(orthogonal_projection, Pg[:, None]).squeeze()
-            grads = utils.flat_to_shape(
-                flat_tensor=flat_grad, shapes=[param.shape for _, param in self.named_params]
-            )
-            for (_, param), grad in utils.zip_(self.named_params, grads):
-                param.summed_grad = grad
-        # ---
-
+        if callback is not None:
+            callback(self)
         self._create_noisy_clipped_gradient()
 
     def _virtual_step(self, loss, scale):
