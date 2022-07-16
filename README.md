@@ -133,12 +133,15 @@ should be sufficient to get things started. Detailed instructions are in the rea
 - [RobertaForSequenceClassification](https://huggingface.co/transformers/model_doc/roberta.html#robertaforsequenceclassification)
 - [AlbertForSequenceClassification](https://huggingface.co/transformers/_modules/transformers/models/albert/modeling_albert.html#AlbertForSequenceClassification)
 - [BartForConditionalGeneration](https://huggingface.co/docs/transformers/model_doc/bart#transformers.BartForCausalLM) (only when positional embedding layer is not updated!)
+- [T5ForConditionalGeneration](https://huggingface.co/docs/transformers/v4.20.1/en/model_doc/t5#transformers.T5ForConditionalGeneration)
 
-Not all models in the Hugging Face library are supported. The main additional work here is to
+Not all models in the Hugging Face library are supported. The main additional work to support a model is to
 
-1. support per-example gradients for bespoke modules
+1. Support per-example gradients for bespoke modules
    (e.g., [T5LayerNorm](https://huggingface.co/transformers/_modules/transformers/modeling_t5.html)), and
-2. ensure `position_ids` are repeated.
+2. Ensure `position_ids` are repeated (duplicated along batch dim 0). Normally, to save memory, one creates positional
+   embedding for one instance and rely on broadcasting when there're multiple instances within a batch. This creates a
+   problem with per-sample gradient accumulation, so we instead duplicate inputs to positional embeddings.
 
 We plan to support more models in the future if there's such a need. Feel free to open an issue if you may want to try
 out specific models that aren't in the current list.

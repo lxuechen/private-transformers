@@ -15,6 +15,7 @@ grad still gets grads computed, but not stored. This is an unfortunate trade-off
 import torch
 from torch import nn
 from torch.functional import F
+from transformers.models.t5.modeling_t5 import T5LayerNorm
 
 from . import autograd_grad_sample
 from .settings import BackwardHookMode
@@ -190,9 +191,21 @@ def _custom_compute_conv1d_grad_sample(layer: nn.Linear, A: torch.Tensor, B: tor
             _create_or_extend_grad_sample(layer.bias, B.sum(dim=1))
 
 
+def _compute_t5_layer_norm_grad_sample(layer: T5LayerNorm, A: torch.Tensor, B: torch.Tensor):
+    is_backward_ghost_norm = autograd_grad_sample.get_hooks_mode() == BackwardHookMode.ghost_norm
+
+    grad_sample = (A * torch.rsqrt(A.pow(2).mean(-1, keepdim=True) + layer.variance_epsilon) * B).sum(dim=1)
+    if is_backward_ghost_norm:
+        norm_sample = grad_sample.norm(2, dim=1)
+        _create_or_extend_norm_sample(layer.weight, norm_sample)
+    else:
+        _create_or_extend_grad_sample(layer.weight, grad_sample)
+
+
 _supported_layers_grad_samplers = {
     "Embedding": _compute_embedding_grad_sample,
     "Linear": _compute_linear_grad_sample,
     "LayerNorm": _compute_layer_norm_grad_sample,
     "Conv1D": _custom_compute_conv1d_grad_sample,  # HuggingFace Open-AI GPT-2.
+    "T5LayerNorm": _compute_t5_layer_norm_grad_sample,
 }
