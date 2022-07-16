@@ -284,9 +284,11 @@ def test_generation(clipping_mode, tie_word_embeddings, model_name_or_path):
 
 @pytest.mark.parametrize(
     'clipping_mode,tie_word_embeddings,model_name_or_path',
-    tuple(itertools.product(["ghost", "default"], [True], ['facebook/bart-base']))
+    tuple(itertools.product(["ghost", "default"], [True], ['facebook/bart-base', 't5-base']))
 )
 def test_conditional_generation(clipping_mode: str, tie_word_embeddings, model_name_or_path):
+    if 't5' in model_name_or_path:
+        torch.set_default_dtype(torch.float32)  # Unfortunately, can't run double precision on T5.
     gc.collect()
     torch.cuda.empty_cache()
 
@@ -302,13 +304,17 @@ def test_conditional_generation(clipping_mode: str, tie_word_embeddings, model_n
 
         # Set up model.
         config = transformers.AutoConfig.from_pretrained(model_name_or_path, cache_dir=CACHE_DIR)
-        config.tie_word_embeddings = tie_word_embeddings
-        # Remove potential causes of randomness.
-        config.dropout = config.attention_dropout = config.activation_dropout = config.classifier_dropout = 0
+        if 'bart' in model_name_or_path:
+            config.tie_word_embeddings = tie_word_embeddings
+            config.dropout = config.attention_dropout = config.activation_dropout = config.classifier_dropout = 0
+        else:  # t5
+            config.dropout_rate = 0.0
+
         model = transformers.AutoModelWithLMHead.from_pretrained(model_name_or_path, config=config, cache_dir=CACHE_DIR)
-        # TODO: Write per-sample grad hooks to enable optimizing the learned positional embedding layer in BART.
-        model.model.encoder.embed_positions.requires_grad_(False)
-        model.model.decoder.embed_positions.requires_grad_(False)
+        if 'bart' in model_name_or_path:
+            # TODO: Write per-sample grad hooks to enable optimizing the learned positional embedding layer in BART.
+            model.model.encoder.embed_positions.requires_grad_(False)
+            model.model.decoder.embed_positions.requires_grad_(False)
         model.train()  # Needed to ensure privacy engine works.
 
         # Make data.
@@ -385,4 +391,11 @@ def test_conditional_generation(clipping_mode: str, tie_word_embeddings, model_n
         gc.collect()
         torch.cuda.empty_cache()
 
-        torch.testing.assert_allclose(result1, result2, atol=1e-5, rtol=1e-6)
+        if 't5' in model_name_or_path:
+            # Loosen tolerance, since T5 only runs in half or single.
+            torch.testing.assert_allclose(result1, result2, atol=1e-2, rtol=1e-3)
+        else:
+            torch.testing.assert_allclose(result1, result2, atol=1e-5, rtol=1e-6)
+
+    if 't5' in model_name_or_path:
+        torch.set_default_dtype(torch.float64)  # Revert to double precision for other tests.
