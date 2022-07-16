@@ -390,7 +390,7 @@ class PrivacyEngine(object):
         self,
         loss,
         scale,
-        callback: Optional[Callable] = None,
+        callback,
     ):
         """Create noisy gradients.
 
@@ -416,7 +416,6 @@ class PrivacyEngine(object):
         self.min_clip = coef_sample.min().item()
         self.med_clip = coef_sample.median().item()
 
-        # --- low rank analysis project ---
         if callback is not None:
             callback(self)
         self._create_noisy_clipped_gradient()
