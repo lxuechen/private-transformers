@@ -9,7 +9,6 @@ from typing import Tuple
 
 import torch
 import torch.nn as nn
-import transformers
 
 from .settings import BackwardHookMode
 from .supported_layers_grad_samplers import _supported_layers_grad_samplers
