@@ -47,9 +47,13 @@ def _light_linear_weight_norm_sample_sequential(A, B):
 
     Linear algebra identity trick -- Eq. 3 in the paper.
     """
-    return torch.sqrt(
-        (torch.bmm(A, A.transpose(-1, -2)) * torch.bmm(B, B.transpose(-1, -2))).sum(dim=(1, 2))
-    )
+    # TODO: This saves compute based on online dimension estimates. Downside is that it makes JIT impossible.
+    #  Think harder about better solutions.
+    (b, t, p), (_, _, d) = A.size(), B.size()
+    if 2 * t ** 2 < p * d:
+        return torch.sqrt((torch.bmm(A, A.transpose(-1, -2)) * torch.bmm(B, B.transpose(-1, -2))).sum(dim=(1, 2)))
+    else:
+        return torch.bmm(B.permute(0, 2, 1), A).flatten(start_dim=1).norm(2, dim=-1)
 
 
 def _light_linear_weight_norm_sample_non_sequential(A, B):
@@ -101,7 +105,6 @@ def _create_or_extend_norm_sample(param: torch.Tensor, norm_sample: torch.Tensor
 
 
 def _compute_linear_grad_sample(layer: nn.Linear, A: Tuple[torch.Tensor], B: Tuple[torch.Tensor]) -> None:
-    # TODO: mixed ghost norm
     """Computes per sample gradients for `nn.Linear` layer.
 
     This function is written in an unusually bespoke way to avoid using `torch.einsum`.
@@ -185,7 +188,6 @@ def _compute_embedding_grad_sample(layer: nn.Embedding, A: Tuple[torch.Tensor], 
 
 
 def _custom_compute_conv1d_grad_sample(layer: nn.Linear, A: Tuple[torch.Tensor], B: Tuple[torch.Tensor]):
-    # TODO: mixed ghost norm.
     """Computes per sample gradients for `transformers.modeling_utils.Conv1D` layer."""
     # `transformers.modeling_utils.Conv1D` has single input and output. Unpack singleton tuples.
     # https://github.com/huggingface/transformers/blob/ccc089780415445768bcfd3ac4418cec20353484/src/transformers/pytorch_utils.py#L107
