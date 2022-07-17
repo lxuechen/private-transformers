@@ -14,20 +14,6 @@ import transformers
 from .settings import BackwardHookMode
 from .supported_layers_grad_samplers import _supported_layers_grad_samplers
 
-SUPPORTED_TRANSFORMERS = (
-    transformers.models.openai.modeling_openai.OpenAIGPTLMHeadModel,
-    transformers.models.openai.modeling_openai.OpenAIGPTDoubleHeadsModel,
-    transformers.models.gpt2.modeling_gpt2.GPT2LMHeadModel,
-    transformers.models.gpt2.modeling_gpt2.GPT2DoubleHeadsModel,
-    transformers.models.bert.modeling_bert.BertForSequenceClassification,
-    transformers.models.roberta.modeling_roberta.RobertaForSequenceClassification,
-    transformers.models.albert.modeling_albert.AlbertForSequenceClassification,
-    transformers.models.bart.modeling_bart.BartForConditionalGeneration,
-    transformers.models.t5.modeling_t5.T5ForConditionalGeneration,
-    transformers.models.opt.modeling_opt.OPTForCausalLM,
-    transformers.models.vit.modeling_vit.ViTForImageClassification,
-)
-
 # TODO: hooks mode should be settable based on the module.
 _hooks_disabled: bool = False
 _hooks_mode = BackwardHookMode.default
@@ -81,14 +67,6 @@ def get_layer_type(layer: nn.Module) -> str:
     return layer.__class__.__name__
 
 
-def _check_if_transformer_supported(model):
-    if not isinstance(model, SUPPORTED_TRANSFORMERS):
-        raise ValueError(
-            f"Model type {type(model)} is not supported. Please file an issue if you want this model to be added.\n"
-            f"Currently supported models are: {SUPPORTED_TRANSFORMERS}"
-        )
-
-
 def add_hooks(model: nn.Module, loss_reduction: str = "mean"):
     r"""
     Adds hooks to model to save activations and backprop values.
@@ -102,8 +80,6 @@ def add_hooks(model: nn.Module, loss_reduction: str = "mean"):
         loss_reduction: Indicates if the loss reduction (for aggregating the gradients) is a sum or a mean operation.
             Can take values ``sum`` or ``mean``.
     """
-    _check_if_transformer_supported(model)
-
     if hasattr(model, "autograd_grad_sample_hooks"):
         raise ValueError("Trying to add hooks twice to the same model")
 

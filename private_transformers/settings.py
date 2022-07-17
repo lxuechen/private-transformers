@@ -1,3 +1,4 @@
+import transformers
 from ml_swissknife import utils
 
 
@@ -18,3 +19,18 @@ class AccountingMode(metaclass=utils.ContainerMeta):
     rdp = "rdp"
     glw = "glw"
     all_ = "all"
+
+
+SUPPORTED_TRANSFORMERS = (
+    transformers.models.openai.modeling_openai.OpenAIGPTLMHeadModel,
+    transformers.models.openai.modeling_openai.OpenAIGPTDoubleHeadsModel,
+    transformers.models.gpt2.modeling_gpt2.GPT2LMHeadModel,
+    transformers.models.gpt2.modeling_gpt2.GPT2DoubleHeadsModel,
+    transformers.models.bert.modeling_bert.BertForSequenceClassification,
+    transformers.models.roberta.modeling_roberta.RobertaForSequenceClassification,
+    transformers.models.albert.modeling_albert.AlbertForSequenceClassification,
+    transformers.models.bart.modeling_bart.BartForConditionalGeneration,
+    transformers.models.t5.modeling_t5.T5ForConditionalGeneration,
+    transformers.models.opt.modeling_opt.OPTForCausalLM,
+    transformers.models.vit.modeling_vit.ViTForImageClassification,
+)

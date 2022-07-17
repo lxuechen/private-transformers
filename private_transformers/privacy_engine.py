@@ -17,7 +17,7 @@ from torch import nn
 
 from . import autograd_grad_sample, transformers_support
 from .accounting import accounting_manager
-from .settings import AccountingMode, BackwardHookMode, ClippingMode
+from .settings import AccountingMode, BackwardHookMode, ClippingMode, SUPPORTED_TRANSFORMERS
 
 
 class PrivacyEngine(object):
@@ -49,6 +49,7 @@ class PrivacyEngine(object):
         clipping_mode=ClippingMode.default,
         accounting_mode="rdp",
         eps_error=0.05,
+        skip_checks=False,
         **unused_kwargs,
     ):
         """Initialize the engine.
@@ -81,6 +82,7 @@ class PrivacyEngine(object):
                         "Numerical composition of differential privacy". https://arxiv.org/abs/2106.02848
                     - all: Report loss with all methods listed above.
             eps_error: Error threshold for upper and lower bound in the GLW accounting procedure.
+            skip_checks: Skips the model type validation test if True.
         """
         utils.handle_unused_kwargs(unused_kwargs)
         del unused_kwargs
@@ -154,6 +156,12 @@ class PrivacyEngine(object):
             autograd_grad_sample.set_hooks_mode(BackwardHookMode.ghost_norm)  # Prepare for first backward.
         else:
             autograd_grad_sample.set_hooks_mode(BackwardHookMode.default)  # Extra guard.
+
+        if not isinstance(module, SUPPORTED_TRANSFORMERS) and not skip_checks:
+            raise ValueError(
+                f"Model type {type(module)} is not supported. Please file an issue if you want this model to be added.\n"
+                f"Currently supported transformers are: {SUPPORTED_TRANSFORMERS}"
+            )
         transformers_support.forward_swapper(module=module)  # Fix the position embeddings broadcast issue.
 
     def lock(self):
