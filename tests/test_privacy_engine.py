@@ -20,7 +20,7 @@ import transformers
 from ml_swissknife import utils
 from torch import optim
 
-from private_transformers import PrivacyEngine
+from private_transformers import PrivacyEngine, supported_layers_grad_samplers
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 torch.set_default_dtype(torch.float64)
@@ -423,6 +423,29 @@ def test_conditional_generation(clipping_mode: str, tie_word_embeddings, model_n
 
     if 't5' in model_name_or_path:
         torch.set_default_dtype(torch.float64)  # Revert to double precision for other tests.
+
+
+def test_t5_layer_norm(batch_size=16, hidden_size=128, seq_len=4):
+    t5_layer_norm = transformers.models.t5.modeling_t5.T5LayerNorm(hidden_size=hidden_size).to(DEVICE)
+    l1, l2 = tuple(copy.deepcopy(t5_layer_norm) for _ in range(2))
+
+    inputs = torch.randn(batch_size, seq_len, hidden_size, device=DEVICE)
+    targets = torch.randn(batch_size, seq_len, hidden_size, device=DEVICE)
+
+    grad1 = []
+    for i, t in utils.zip_(inputs, targets):
+        i, t = i[None, :], t[None, :]
+        l1.zero_grad()
+        (.5 * (l1(i) - t) ** 2.).sum().backward()
+        grad1.append(l1.weight.grad.detach().clone())
+    grad1 = torch.stack(grad1)
+
+    l2.zero_grad()
+    outputs = l2(inputs)
+    grad_outputs = (outputs - targets)
+    supported_layers_grad_samplers._compute_t5_layer_norm_grad_sample(l2, (inputs,), (grad_outputs,))
+    grad2 = l2.weight.grad_sample
+    torch.testing.assert_allclose(grad1, grad2, atol=1e-5, rtol=1e-4)
 
 
 @pytest.mark.skip()

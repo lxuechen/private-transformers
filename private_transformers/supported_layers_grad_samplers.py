@@ -101,6 +101,7 @@ def _create_or_extend_norm_sample(param: torch.Tensor, norm_sample: torch.Tensor
 
 
 def _compute_linear_grad_sample(layer: nn.Linear, A: Tuple[torch.Tensor], B: Tuple[torch.Tensor]) -> None:
+    # TODO: mixed ghost norm
     """Computes per sample gradients for `nn.Linear` layer.
 
     This function is written in an unusually bespoke way to avoid using `torch.einsum`.
@@ -184,6 +185,7 @@ def _compute_embedding_grad_sample(layer: nn.Embedding, A: Tuple[torch.Tensor], 
 
 
 def _custom_compute_conv1d_grad_sample(layer: nn.Linear, A: Tuple[torch.Tensor], B: Tuple[torch.Tensor]):
+    # TODO: mixed ghost norm.
     """Computes per sample gradients for `transformers.modeling_utils.Conv1D` layer."""
     # `transformers.modeling_utils.Conv1D` has single input and output. Unpack singleton tuples.
     # https://github.com/huggingface/transformers/blob/ccc089780415445768bcfd3ac4418cec20353484/src/transformers/pytorch_utils.py#L107
@@ -205,6 +207,10 @@ def _compute_t5_layer_norm_grad_sample(layer: T5LayerNorm, A: Tuple[torch.Tensor
     # `transformers.models.t5.modeling_t5.T5LayerNorm` has single input and output. Unpack singleton tuples.
     # https://github.com/huggingface/transformers/blob/ccc089780415445768bcfd3ac4418cec20353484/src/transformers/models/t5/modeling_t5.py#L248
     (A,), (B,) = A, B
+
+    assert A.dim() == 3 and B.dim() == 3, (
+        "Internal error: T5LayerNorm receiving 2-D tensors, but expected 3-D tensors (sequential inputs)."
+    )
 
     is_backward_ghost_norm = autograd_grad_sample.get_hooks_mode() == BackwardHookMode.ghost_norm
 
