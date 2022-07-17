@@ -20,7 +20,7 @@ import transformers
 from ml_swissknife import utils
 from torch import optim
 
-from private_transformers import PrivacyEngine, supported_layers_grad_samplers
+from private_transformers import PrivacyEngine, freeze_isolated_params_for_vit, supported_layers_grad_samplers
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 torch.set_default_dtype(torch.float64)
@@ -64,8 +64,31 @@ def _make_encoder_decoder_data(num_micro_batches=4, micro_batch_size=4, seq_len=
     )
 
 
+def _make_image_classification_data(
+    num_micro_batches=4, micro_batch_size=4,
+    num_labels=10, num_channels=3, height=224, width=224,
+):
+    return tuple(
+        dict(
+            images=torch.randn(micro_batch_size, num_channels, height, width),
+            labels=torch.randint(size=(micro_batch_size,), low=0, high=num_labels),
+        )
+        for _ in range(num_micro_batches)
+    )
+
+
 def _prepare_inputs(batch: dict):
     return {key: value.to(DEVICE) for key, value in batch.items()}
+
+
+def _prepare_vision_inputs(images: torch.Tensor, feature_extractor) -> dict:
+    return {
+        key: value.to(device=DEVICE, dtype=torch.get_default_dtype())
+        for key, value in feature_extractor(
+            # Work around for feature_extractor not being able to handle batched Tensor images of size (bsz, 3, H, W).
+            [image_i for image_i in images], return_tensors="pt"
+        ).items()
+    }
 
 
 @pytest.mark.parametrize(
@@ -104,7 +127,7 @@ def test_classification(clipping_mode: str, model_name_or_path: str):
     model = transformers.AutoModelForSequenceClassification.from_pretrained(model_name_or_path, config=config)
     model.requires_grad_(True).train()
 
-    names = [name for name, param in model.named_parameters() if param.requires_grad]
+    param_names = [name for name, param in model.named_parameters() if param.requires_grad]
     num_trainable_params = sum(param.numel() for param in model.parameters() if param.requires_grad)
     print(f'Number of trainable parameters: {num_trainable_params / 1e6:.4f} million')
 
@@ -178,7 +201,7 @@ def test_classification(clipping_mode: str, model_name_or_path: str):
     gc.collect()
     torch.cuda.empty_cache()
 
-    for g1, g2, name in utils.zip_(result1, result2, names):
+    for g1, g2, name in utils.zip_(result1, result2, param_names):
         try:
             torch.testing.assert_allclose(g1, g2, atol=1e-5, rtol=1e-6)
         except AssertionError as e:
@@ -229,6 +252,7 @@ def test_generation(clipping_mode, tie_word_embeddings, model_name_or_path):
                 model_name_or_path, config=config, cache_dir=CACHE_DIR
             )
         model.train()  # Needed to ensure privacy engine works.
+        param_names = [name for name, param in model.named_parameters() if param.requires_grad]
 
         # Make data.
         batches = _make_generation_data(
@@ -290,16 +314,15 @@ def test_generation(clipping_mode, tie_word_embeddings, model_name_or_path):
                     for si, pi in utils.zip_(summed_grad, list(clone2.parameters())):
                         si.add_(factor * pi.grad)
         result2 = [si / batch_size for si in summed_grad]
-        names = [name for (name, _) in clone2.named_parameters()]
         del clone2, loss, shifted_labels, shifted_logits, optimizer
 
         gc.collect()
         torch.cuda.empty_cache()
 
         wrong_names = []
-        for name, r1, r2 in utils.zip_(names, result1, result2):
+        for r1, r2, param_name in utils.zip_(result1, result2, param_names):
             if not torch.allclose(r1, r2, atol=1e-5, rtol=1e-6):
-                wrong_names.append(name)
+                wrong_names.append(param_name)
         if len(wrong_names) > 0:
             raise AssertionError(
                 f"The following parameters have wrong gradients: \n{wrong_names}"
@@ -448,10 +471,104 @@ def test_t5_layer_norm(batch_size=16, hidden_size=128, seq_len=4):
     torch.testing.assert_allclose(grad1, grad2, atol=1e-5, rtol=1e-4)
 
 
-@pytest.mark.skip()
 @pytest.mark.parametrize(
-    'clipping_mode,model_name_or_path',
-    tuple(itertools.product(["ghost", "default"], ['google/vit-base-patch16-224']))
+    'clipping_mode,model_name_or_path,num_labels',
+    tuple(itertools.product(["ghost", "default"], ['google/vit-base-patch16-224'], [10]))
 )
-def test_image_classification(clipping_mode: str, model_name_or_path):
-    raise NotImplementedError
+def test_image_classification(clipping_mode: str, model_name_or_path: str, num_labels: int):
+    lr = 1e-4
+    num_micro_batches = 4
+    micro_batch_size = 4
+    batch_size = num_micro_batches * micro_batch_size
+    max_grad_norm = 1
+
+    config = transformers.AutoConfig.from_pretrained(model_name_or_path)
+    config.hidden_dropout_prob = config.attention_probs_dropout_prob = 0.
+    config.num_labels = num_labels
+    model = transformers.ViTForImageClassification.from_pretrained(
+        model_name_or_path,
+        config=config,
+        ignore_mismatched_sizes=True  # Default pre-trained model has 1k classes; we only have 10.
+    )
+    freeze_isolated_params_for_vit(model)
+    model.train()
+
+    # Create patches based on images.
+    feature_extractor = transformers.ViTFeatureExtractor.from_pretrained(model_name_or_path)
+
+    batches = _make_image_classification_data(
+        num_micro_batches=num_micro_batches, micro_batch_size=micro_batch_size, num_labels=num_labels,
+    )
+    param_names = [name for name, param in model.named_parameters() if param.requires_grad]
+
+    # 1: Compute updates with my engine.
+    clone1 = copy.deepcopy(model).to(DEVICE)
+    clone1_params = [param for param in clone1.parameters() if param.requires_grad]
+
+    optimizer = optim.Adam(params=clone1_params, lr=lr)
+    privacy_engine = PrivacyEngine(
+        module=clone1,
+        batch_size=batch_size,
+        max_grad_norm=max_grad_norm,
+        noise_multiplier=0.,  # Remove noise to test gradient clipping & accumulation.
+        sample_size=1000,  # Any number suffices for testing.
+        epochs=1,  # Any number suffices for testing.
+        numerical_stability_constant=0.,  # Important!
+        clipping_mode=clipping_mode,
+    )
+    privacy_engine.attach(optimizer=optimizer)
+    optimizer.zero_grad()  # Clears summed_grad, so don't run unless necessary.
+    for i, batch in enumerate(batches, 1):
+        input_ids = _prepare_vision_inputs(batch["images"], feature_extractor=feature_extractor)
+        logits = clone1(**input_ids).logits
+        labels = batch["labels"].to(DEVICE)
+        loss = F.cross_entropy(logits, labels, reduction="none")
+
+        del batch
+        if i == len(batches):
+            optimizer.step(loss=loss)
+        else:
+            optimizer.virtual_step(loss=loss)
+
+    result1 = [param.grad for param in clone1_params]
+    privacy_engine.detach()  # Restore`hooks_mode`.
+    del clone1, loss, logits, labels, optimizer
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    # 2: Compute grad and clip one-by-one.
+    clone2 = copy.deepcopy(model).to(DEVICE)
+    clone2_params = [param for param in clone2.parameters() if param.requires_grad]
+
+    optimizer = torch.optim.Adam(params=clone2_params, lr=lr)
+    summed_grad = [torch.zeros_like(param) for param in clone2_params]
+    for i, batch in tqdm.tqdm(enumerate(batches, 1), desc="over batches"):
+        for images, labels in tqdm.tqdm(utils.zip_(batch["images"], batch["labels"]), desc="over samples"):
+            optimizer.zero_grad(set_to_none=True)  # Clear previous grad each time!
+            images = images[None, ...]
+            input_ids = _prepare_vision_inputs(images, feature_extractor)
+            labels = labels[None].to(DEVICE)
+
+            logits = clone2(**input_ids).logits
+            loss = F.cross_entropy(logits, labels, reduction="none").sum()
+            loss.backward()
+
+            with torch.no_grad():
+                flat_unclipped_grad = torch.cat(tuple(param.grad.flatten() for param in clone2_params))
+                factor = torch.clamp_max(max_grad_norm / flat_unclipped_grad.norm(), 1.)
+                for si, pi in utils.zip_(summed_grad, clone2_params):
+                    si.add_(factor * pi.grad)
+
+    result2 = [grad / batch_size for grad in summed_grad]
+    del clone2, loss, logits, labels, optimizer
+
+    del model
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    for g1, g2, name in utils.zip_(result1, result2, param_names):
+        try:
+            torch.testing.assert_allclose(g1, g2, atol=1e-5, rtol=1e-6)
+        except AssertionError as e:
+            print(f"failed at {name}")
+            raise e

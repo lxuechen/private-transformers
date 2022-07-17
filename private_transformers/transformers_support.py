@@ -685,3 +685,16 @@ def swap_opt_model_forward(model):
     for module in model.modules():
         if isinstance(module, transformers.models.opt.modeling_opt.OPTDecoderLayer):
             module.forward = types.MethodType(opt_decoder_layer_forward, module)
+
+
+def freeze_isolated_params_for_vit(model):
+    """Freeze the isolated parameters in Vi-T models.
+
+    Supporting per-sample gradients for these parameters is possible, but takes a lot of engineering effort.
+    """
+    for module in model.modules():
+        if isinstance(module, transformers.models.vit.modeling_vit.ViTEmbeddings):
+            module.cls_token.requires_grad_(False)
+            if module.mask_token is not None:
+                module.mask_token.requires_grad_(False)
+            module.position_embeddings.requires_grad_(False)

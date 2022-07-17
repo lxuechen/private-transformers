@@ -14,7 +14,9 @@ grad still gets grads computed, but not stored. This is an unfortunate trade-off
 
 from typing import Tuple
 
+import numpy as np
 import torch
+from opt_einsum import contract
 from torch import nn
 from torch.functional import F
 from transformers.models.opt.modeling_opt import OPTLearnedPositionalEmbedding
@@ -224,11 +226,6 @@ def _compute_t5_layer_norm_grad_sample(layer: T5LayerNorm, A: Tuple[torch.Tensor
         _create_or_extend_grad_sample(layer.weight, grad_sample)
 
 
-def _compute_vit_embedding_grad_sample(layer, A: Tuple[torch.Tensor], B: Tuple[torch.Tensor]):
-    # TODO: Create grads for cls_token, mask_token, position_embeddings.
-    raise NotImplementedError
-
-
 def _compute_opt_learned_positional_embedding_grad_sample(
     layer: OPTLearnedPositionalEmbedding, A: Tuple[torch.Tensor, int], B: Tuple[torch.Tensor]
 ):
@@ -247,12 +244,80 @@ def _compute_opt_learned_positional_embedding_grad_sample(
     _compute_embedding_grad_sample(layer, (positions,), (B,))
 
 
+def unfold2d(
+    input,
+    *,
+    kernel_size: Tuple[int, int],
+    padding: Tuple[int, int],
+    stride: Tuple[int, int],
+    dilation: Tuple[int, int],
+):
+    """
+    See :meth:`~torch.nn.functional.unfold`
+    """
+    *shape, H, W = input.shape
+    H_effective = (H + 2 * padding[0] - (kernel_size[0] + (kernel_size[0] - 1) * (dilation[0] - 1))) // stride[0] + 1
+    W_effective = (W + 2 * padding[1] - (kernel_size[1] + (kernel_size[1] - 1) * (dilation[1] - 1))) // stride[1] + 1
+    # F.pad's first argument is the padding of the *last* dimension
+    input = F.pad(input, (padding[1], padding[1], padding[0], padding[0]))
+    *shape_pad, H_pad, W_pad = input.shape
+    strides = list(input.stride())
+    strides = strides[:-2] + [
+        W_pad * dilation[0],
+        dilation[1],
+        W_pad * stride[0],
+        stride[1],
+    ]
+    out = input.as_strided(
+        shape + [kernel_size[0], kernel_size[1], H_effective, W_effective], strides
+    )
+
+    return out.reshape(input.size(0), -1, H_effective * W_effective)
+
+
+def _compute_conv2d_grad_sample(layer: nn.Conv2d, activations: Tuple[torch.Tensor], backprops: Tuple[torch.Tensor]):
+    # `nn.Conv2d` has one input and one output. Unpack tuples.
+    (activations,), (backprops,) = activations, backprops
+
+    n = activations.shape[0]
+    activations = unfold2d(
+        activations, kernel_size=layer.kernel_size, padding=layer.padding, stride=layer.stride, dilation=layer.dilation
+    )  # shape (n, o, q)
+    backprops = backprops.reshape(n, -1, activations.shape[-1])  # shape (n, p, q)
+
+    if autograd_grad_sample.get_hooks_mode() == BackwardHookMode.ghost_norm:
+        activations = activations.permute(0, 2, 1)
+        backprops = backprops.permute(0, 2, 1)
+        _create_or_extend_norm_sample(layer.weight, _light_linear_weight_norm_sample(activations, backprops))
+        if layer.bias is not None:
+            _create_or_extend_norm_sample(layer.bias, _light_linear_bias_norm_sample(backprops))
+    else:
+        # n=batch_sz; o=num_out_channels; p=(num_in_channels/groups)*kernel_sz
+        grad_sample = contract("noq,npq->nop", backprops, activations)
+        # rearrange the above tensor and extract diagonals.
+        grad_sample = grad_sample.view(
+            n,
+            layer.groups,
+            -1,
+            layer.groups,
+            int(layer.in_channels / layer.groups),
+            np.prod(layer.kernel_size),
+        )
+        grad_sample = contract("ngrg...->ngr...", grad_sample).contiguous()
+        grad_weight = grad_sample.view([n] + list(layer.weight.shape))
+        _create_or_extend_grad_sample(layer.weight, grad_weight)
+
+        if layer.bias is not None:
+            grad_bias = torch.sum(backprops, dim=2)
+            _create_or_extend_grad_sample(layer.bias, grad_bias)
+
+
 _supported_layers_grad_samplers = {
     "Embedding": _compute_embedding_grad_sample,
     "Linear": _compute_linear_grad_sample,
+    "Conv2d": _compute_conv2d_grad_sample,  # nn.Conv2d.
     "LayerNorm": _compute_layer_norm_grad_sample,
     "Conv1D": _custom_compute_conv1d_grad_sample,  # HuggingFace Open-AI GPT-2.
     "T5LayerNorm": _compute_t5_layer_norm_grad_sample,
     "OPTLearnedPositionalEmbedding": _compute_opt_learned_positional_embedding_grad_sample,
-    "ViTEmbeddings": _compute_vit_embedding_grad_sample,
 }
