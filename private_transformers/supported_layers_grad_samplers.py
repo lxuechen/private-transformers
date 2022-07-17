@@ -15,6 +15,7 @@ grad still gets grads computed, but not stored. This is an unfortunate trade-off
 import torch
 from torch import nn
 from torch.functional import F
+from transformers.models.opt.modeling_opt import OPTLearnedPositionalEmbedding
 from transformers.models.t5.modeling_t5 import T5LayerNorm
 
 from . import autograd_grad_sample
@@ -202,10 +203,33 @@ def _compute_t5_layer_norm_grad_sample(layer: T5LayerNorm, A: torch.Tensor, B: t
         _create_or_extend_grad_sample(layer.weight, grad_sample)
 
 
+def _compute_vit_embedding_grad_sample(layer, A: torch.Tensor, B: torch.Tensor):
+    # TODO: Create grads for cls_token, mask_token, position_embeddings.
+    raise NotImplementedError
+
+
+def _compute_opt_learned_positional_embedding_grad_sample(
+    layer: OPTLearnedPositionalEmbedding, A: torch.Tensor, B: torch.Tensor
+):
+    past_key_values_length = 0  # TODO: Fix this error.
+
+    attention_mask = A.long()
+
+    # create positions depending on attention_mask
+    positions = (torch.cumsum(attention_mask, dim=1).type_as(attention_mask) * attention_mask).long() - 1
+
+    # cut positions if `past_key_values_length` is > 0
+    positions = positions[:, past_key_values_length:]
+
+    _compute_embedding_grad_sample(layer, positions, B)
+
+
 _supported_layers_grad_samplers = {
     "Embedding": _compute_embedding_grad_sample,
     "Linear": _compute_linear_grad_sample,
     "LayerNorm": _compute_layer_norm_grad_sample,
     "Conv1D": _custom_compute_conv1d_grad_sample,  # HuggingFace Open-AI GPT-2.
     "T5LayerNorm": _compute_t5_layer_norm_grad_sample,
+    "ViTEmbeddings": _compute_vit_embedding_grad_sample,
+    "OPTLearnedPositionalEmbedding": _compute_opt_learned_positional_embedding_grad_sample,
 }

@@ -132,8 +132,10 @@ should be sufficient to get things started. Detailed instructions are in the rea
 - [BertForSequenceClassification](https://huggingface.co/transformers/_modules/transformers/models/bert/modeling_bert.html#BertForSequenceClassification)
 - [RobertaForSequenceClassification](https://huggingface.co/transformers/model_doc/roberta.html#robertaforsequenceclassification)
 - [AlbertForSequenceClassification](https://huggingface.co/transformers/_modules/transformers/models/albert/modeling_albert.html#AlbertForSequenceClassification)
-- [BartForConditionalGeneration](https://huggingface.co/docs/transformers/model_doc/bart#transformers.BartForCausalLM) (only when positional embedding layer is not updated!)
+- [BartForConditionalGeneration](https://huggingface.co/docs/transformers/model_doc/bart#transformers.BartForCausalLM) (only when positional embedding layers in encoder and decoder are not updated!)
 - [T5ForConditionalGeneration](https://huggingface.co/docs/transformers/v4.20.1/en/model_doc/t5#transformers.T5ForConditionalGeneration)
+- [ViTForImageClassification](https://huggingface.co/docs/transformers/v4.20.1/en/model_doc/vit#transformers.ViTForImageClassification)
+- [OPTForCausalLM](https://huggingface.co/docs/transformers/model_doc/opt#transformers.OPTForCausalLM)
 
 Not all models in the Hugging Face library are supported. The main additional work to support a model is to
 

@@ -152,6 +152,7 @@ def _capture_activations(layer: nn.Module, inputs: Tuple[torch.Tensor], outputs:
     if not hasattr(layer, "activations"):
         layer.activations = []
 
+    # TODO: This misses important kwargs.
     layer.activations.append(inputs[0].detach())
 
 
