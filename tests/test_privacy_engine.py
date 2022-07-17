@@ -188,7 +188,14 @@ def test_classification(clipping_mode: str, model_name_or_path: str):
 
 @pytest.mark.parametrize(
     'clipping_mode,tie_word_embeddings,model_name_or_path',
-    tuple(itertools.product(["ghost", "default"], [False, True], ['gpt2', 'openai-gpt']))
+    # Testing two OPT models, since the 350m one has a different LayerNorm placement.
+    tuple(
+        itertools.product(
+            ["ghost", "default"],
+            [False, True],
+            ['gpt2', 'openai-gpt', 'facebook/opt-125m', 'facebook/opt-350m']
+        )
+    )
 )
 def test_generation(clipping_mode, tie_word_embeddings, model_name_or_path):
     gc.collect()
@@ -207,9 +214,20 @@ def test_generation(clipping_mode, tie_word_embeddings, model_name_or_path):
         # Set up model.
         config = transformers.AutoConfig.from_pretrained(model_name_or_path, cache_dir=CACHE_DIR)
         config.tie_word_embeddings = tie_word_embeddings
-        # Remove potential causes of randomness.
-        config.attn_pdrop = config.embd_pdrop = config.resid_pdrop = 0.
-        model = transformers.AutoModelWithLMHead.from_pretrained(model_name_or_path, config=config, cache_dir=CACHE_DIR)
+        # Branch out due to weird inconsistency with naming.
+        # OPT is AutoModelForCausalLM; GPT is AutoModelWithLMHead.
+        if 'opt' in model_name_or_path:
+            # Remove potential causes of randomness.
+            config.activation_dropout = config.attention_dropout = config.dropout = config.layerdrop = 0.
+            model = transformers.AutoModelForCausalLM.from_pretrained(
+                model_name_or_path, config=config, cache_dir=CACHE_DIR
+            )
+        else:
+            # Remove potential causes of randomness.
+            config.attn_pdrop = config.embd_pdrop = config.resid_pdrop = 0.
+            model = transformers.AutoModelWithLMHead.from_pretrained(
+                model_name_or_path, config=config, cache_dir=CACHE_DIR
+            )
         model.train()  # Needed to ensure privacy engine works.
 
         # Make data.
@@ -245,8 +263,7 @@ def test_generation(clipping_mode, tie_word_embeddings, model_name_or_path):
                 optimizer.step(loss=loss)
             else:
                 optimizer.virtual_step(loss=loss)
-        # Collect grads.
-        result1 = torch.cat([param.grad.flatten() for param in clone1.parameters()])
+        result1 = [param.grad for param in clone1.parameters()]
         privacy_engine.detach()  # Restore`hooks_mode`.
         del clone1, loss, shifted_labels, shifted_logits, optimizer
         gc.collect()
@@ -272,14 +289,21 @@ def test_generation(clipping_mode, tie_word_embeddings, model_name_or_path):
                     factor = torch.clamp_max(max_grad_norm / flat_unclipped_grad.norm(), 1.)
                     for si, pi in utils.zip_(summed_grad, list(clone2.parameters())):
                         si.add_(factor * pi.grad)
-        # Collect grads.
-        result2 = torch.cat([si.flatten() for si in summed_grad]) / batch_size
+        result2 = [si / batch_size for si in summed_grad]
+        names = [name for (name, _) in clone2.named_parameters()]
         del clone2, loss, shifted_labels, shifted_logits, optimizer
 
         gc.collect()
         torch.cuda.empty_cache()
 
-        torch.testing.assert_allclose(result1, result2, atol=1e-5, rtol=1e-6)
+        wrong_names = []
+        for name, r1, r2 in utils.zip_(names, result1, result2):
+            if not torch.allclose(r1, r2, atol=1e-5, rtol=1e-6):
+                wrong_names.append(name)
+        if len(wrong_names) > 0:
+            raise AssertionError(
+                f"The following parameters have wrong gradients: \n{wrong_names}"
+            )
 
 
 @pytest.mark.parametrize(
@@ -399,3 +423,11 @@ def test_conditional_generation(clipping_mode: str, tie_word_embeddings, model_n
 
     if 't5' in model_name_or_path:
         torch.set_default_dtype(torch.float64)  # Revert to double precision for other tests.
+
+
+@pytest.mark.parametrize(
+    'clipping_mode,model_name_or_path',
+    tuple(itertools.product(["ghost", "default"], ['google/vit-base-patch16-224']))
+)
+def test_image_classification(clipping_mode: str, model_name_or_path):
+    raise NotImplementedError
