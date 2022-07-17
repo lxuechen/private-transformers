@@ -133,7 +133,7 @@ def is_supported(layer: nn.Module) -> bool:
     return get_layer_type(layer) in list(_supported_layers_grad_samplers.keys())
 
 
-def _capture_activations(layer: nn.Module, inputs: Tuple[torch.Tensor], outputs: Tuple[torch.Tensor]):
+def _capture_activations(layer: nn.Module, inputs: Tuple, outputs: Tuple):
     """Forward hook handler captures and saves activations."""
     layer_type = get_layer_type(layer)
     if (
@@ -152,8 +152,9 @@ def _capture_activations(layer: nn.Module, inputs: Tuple[torch.Tensor], outputs:
     if not hasattr(layer, "activations"):
         layer.activations = []
 
-    # TODO: This misses important kwargs.
-    layer.activations.append(inputs[0].detach())
+    # This improves on original Opacus and supports additional arguments on top of the (first) activation tensor.
+    stored_inputs = tuple(input_i.detach() if torch.is_tensor(input_i) else input_i for input_i in inputs)
+    layer.activations.append(stored_inputs)
 
 
 def _capture_backprops(
@@ -163,11 +164,12 @@ def _capture_backprops(
     loss_reduction: str
 ):
     """Backward hook handler captures grad_outputs."""
-    backprops = outputs[0].detach()
+    # This improves on the original Opacus codebase and supports multiple outputs.
+    backprops = tuple(output_i.detach() if torch.is_tensor(output_i) else output_i for output_i in outputs)
     _compute_grad_sample(layer, backprops, loss_reduction)
 
 
-def _compute_grad_sample(layer: nn.Module, backprops: torch.Tensor, loss_reduction: str):
+def _compute_grad_sample(layer: nn.Module, backprops: Tuple, loss_reduction: str):
     """Computes per-sample gradients with respect to the parameters."""
     layer_type = get_layer_type(layer)
     if (
@@ -190,11 +192,12 @@ def _compute_grad_sample(layer: nn.Module, backprops: torch.Tensor, loss_reducti
         A = layer.activations
 
     if not hasattr(layer, "max_batch_len"):
-        layer.max_batch_len = _get_batch_size(layer, A)
+        assert torch.is_tensor(A[0]), f"Internal error: first input of the following layer isn't a Tensor. \n{layer}"
+        layer.max_batch_len = _get_batch_size(layer, A[0])
 
     n = layer.max_batch_len
     if loss_reduction == "mean":
-        B = backprops * n
+        B = tuple(B_i * n if torch.is_tensor(B_i) else B_i for B_i in backprops)
     elif loss_reduction == "sum":
         B = backprops
     else:
@@ -219,8 +222,11 @@ def _get_batch_size(layer: nn.Module, grad_sample: torch.Tensor) -> int:
     max_batch_len = 0
     if isinstance(layer.activations, list):
         for out in layer.activations:
-            if out.shape[batch_dim] > max_batch_len:
-                max_batch_len = out.shape[batch_dim]
+            assert torch.is_tensor(out[0]), (
+                f"Internal error: first input of the following layer isn't a Tensor. \n{layer}"
+            )
+            if out[0].shape[batch_dim] > max_batch_len:
+                max_batch_len = out[0].shape[batch_dim]
 
     max_batch_len = max(max_batch_len, grad_sample.shape[batch_dim])
     return max_batch_len

@@ -12,6 +12,8 @@ There's some memory and compute inefficiency. For a layer that requires grad, a 
 grad still gets grads computed, but not stored. This is an unfortunate trade-off made to let code more readable.
 """
 
+from typing import Tuple
+
 import torch
 from torch import nn
 from torch.functional import F
@@ -98,11 +100,12 @@ def _create_or_extend_norm_sample(param: torch.Tensor, norm_sample: torch.Tensor
     param.norm_sample = norm_sample
 
 
-def _compute_linear_grad_sample(layer: nn.Linear, A: torch.Tensor, B: torch.Tensor) -> None:
+def _compute_linear_grad_sample(layer: nn.Linear, A: Tuple[torch.Tensor], B: Tuple[torch.Tensor]) -> None:
     """Computes per sample gradients for `nn.Linear` layer.
 
     This function is written in an unusually bespoke way to avoid using `torch.einsum`.
     """
+    (A,), (B,) = A, B  # Unpack singleton tuples.
 
     if autograd_grad_sample.get_hooks_mode() == BackwardHookMode.ghost_norm:
         _create_or_extend_norm_sample(layer.weight, _light_linear_weight_norm_sample(A, B))
@@ -127,8 +130,9 @@ def _compute_linear_grad_sample(layer: nn.Linear, A: torch.Tensor, B: torch.Tens
             _create_or_extend_grad_sample(layer.bias, grad_bias)
 
 
-def _compute_layer_norm_grad_sample(layer: nn.LayerNorm, A: torch.Tensor, B: torch.Tensor) -> None:
-    """Computes per sample gradients for normalization layers."""
+def _compute_layer_norm_grad_sample(layer: nn.LayerNorm, A: Tuple[torch.Tensor], B: Tuple[torch.Tensor]) -> None:
+    """Computes per sample gradients for `nn.LayerNorm` layer."""
+    (A,), (B,) = A, B  # Unpack singleton tuples.
 
     is_backward_ghost_norm = autograd_grad_sample.get_hooks_mode() == BackwardHookMode.ghost_norm
 
@@ -150,8 +154,10 @@ def _compute_layer_norm_grad_sample(layer: nn.LayerNorm, A: torch.Tensor, B: tor
         _create_or_extend_grad_sample(layer.bias, grad_sample)
 
 
-def _compute_embedding_grad_sample(layer: nn.Embedding, A: torch.Tensor, B: torch.Tensor) -> None:
+def _compute_embedding_grad_sample(layer: nn.Embedding, A: Tuple[torch.Tensor], B: Tuple[torch.Tensor]) -> None:
     """Computes per sample gradients for `nn.Embedding` layer."""
+    # `nn.Embedding` has single input and output. Unpack singleton tuples.
+    (A,), (B,) = A, B
 
     if autograd_grad_sample.get_hooks_mode() == BackwardHookMode.ghost_norm:
         not_AAt: torch.Tensor = ~A[:, :, None].eq(A[:, None, :])
@@ -177,8 +183,11 @@ def _compute_embedding_grad_sample(layer: nn.Embedding, A: torch.Tensor, B: torc
         _create_or_extend_grad_sample(layer.weight, grad_sample)
 
 
-def _custom_compute_conv1d_grad_sample(layer: nn.Linear, A: torch.Tensor, B: torch.Tensor):
+def _custom_compute_conv1d_grad_sample(layer: nn.Linear, A: Tuple[torch.Tensor], B: Tuple[torch.Tensor]):
     """Computes per sample gradients for `transformers.modeling_utils.Conv1D` layer."""
+    # `transformers.modeling_utils.Conv1D` has single input and output. Unpack singleton tuples.
+    # https://github.com/huggingface/transformers/blob/ccc089780415445768bcfd3ac4418cec20353484/src/transformers/pytorch_utils.py#L107
+    (A,), (B,) = A, B
 
     if autograd_grad_sample.get_hooks_mode() == BackwardHookMode.ghost_norm:
         _create_or_extend_norm_sample(layer.weight, _light_linear_weight_norm_sample(A, B))
@@ -192,7 +201,11 @@ def _custom_compute_conv1d_grad_sample(layer: nn.Linear, A: torch.Tensor, B: tor
             _create_or_extend_grad_sample(layer.bias, B.sum(dim=1))
 
 
-def _compute_t5_layer_norm_grad_sample(layer: T5LayerNorm, A: torch.Tensor, B: torch.Tensor):
+def _compute_t5_layer_norm_grad_sample(layer: T5LayerNorm, A: Tuple[torch.Tensor], B: Tuple[torch.Tensor]):
+    # `transformers.models.t5.modeling_t5.T5LayerNorm` has single input and output. Unpack singleton tuples.
+    # https://github.com/huggingface/transformers/blob/ccc089780415445768bcfd3ac4418cec20353484/src/transformers/models/t5/modeling_t5.py#L248
+    (A,), (B,) = A, B
+
     is_backward_ghost_norm = autograd_grad_sample.get_hooks_mode() == BackwardHookMode.ghost_norm
 
     grad_sample = (A * torch.rsqrt(A.pow(2).mean(-1, keepdim=True) + layer.variance_epsilon) * B).sum(dim=1)
@@ -203,15 +216,17 @@ def _compute_t5_layer_norm_grad_sample(layer: T5LayerNorm, A: torch.Tensor, B: t
         _create_or_extend_grad_sample(layer.weight, grad_sample)
 
 
-def _compute_vit_embedding_grad_sample(layer, A: torch.Tensor, B: torch.Tensor):
+def _compute_vit_embedding_grad_sample(layer, A: Tuple[torch.Tensor], B: Tuple[torch.Tensor]):
     # TODO: Create grads for cls_token, mask_token, position_embeddings.
     raise NotImplementedError
 
 
 def _compute_opt_learned_positional_embedding_grad_sample(
-    layer: OPTLearnedPositionalEmbedding, A: torch.Tensor, B: torch.Tensor
+    layer: OPTLearnedPositionalEmbedding, A: Tuple[torch.Tensor, int], B: Tuple[torch.Tensor]
 ):
-    past_key_values_length = 0  # TODO: Fix this error.
+    # `transformers.models.opt.modeling_opt.OPTLearnedPositionalEmbedding` has two inputs and one output.
+    # https://github.com/huggingface/transformers/blob/d0acc9537829e7d067edbb791473bbceb2ecf056/src/transformers/models/opt/modeling_opt.py#L99
+    (A, past_key_values_length), (B,) = A, B  # Unpack tuples.
 
     attention_mask = A.long()
 
@@ -221,7 +236,7 @@ def _compute_opt_learned_positional_embedding_grad_sample(
     # cut positions if `past_key_values_length` is > 0
     positions = positions[:, past_key_values_length:]
 
-    _compute_embedding_grad_sample(layer, positions, B)
+    _compute_embedding_grad_sample(layer, (positions,), (B,))
 
 
 _supported_layers_grad_samplers = {
@@ -230,6 +245,6 @@ _supported_layers_grad_samplers = {
     "LayerNorm": _compute_layer_norm_grad_sample,
     "Conv1D": _custom_compute_conv1d_grad_sample,  # HuggingFace Open-AI GPT-2.
     "T5LayerNorm": _compute_t5_layer_norm_grad_sample,
-    "ViTEmbeddings": _compute_vit_embedding_grad_sample,
     "OPTLearnedPositionalEmbedding": _compute_opt_learned_positional_embedding_grad_sample,
+    "ViTEmbeddings": _compute_vit_embedding_grad_sample,
 }
