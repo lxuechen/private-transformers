@@ -234,7 +234,7 @@ def _compute_opt_learned_positional_embedding_grad_sample(
     positions = (torch.cumsum(attention_mask, dim=1).type_as(attention_mask) * attention_mask).long() - 1
 
     # cut positions if `past_key_values_length` is > 0
-    positions = positions[:, past_key_values_length:]
+    positions = positions[:, past_key_values_length:] + layer.offset
 
     _compute_embedding_grad_sample(layer, (positions,), (B,))
 
