@@ -425,6 +425,7 @@ def test_conditional_generation(clipping_mode: str, tie_word_embeddings, model_n
         torch.set_default_dtype(torch.float64)  # Revert to double precision for other tests.
 
 
+@pytest.mark.skip()
 @pytest.mark.parametrize(
     'clipping_mode,model_name_or_path',
     tuple(itertools.product(["ghost", "default"], ['google/vit-base-patch16-224']))
