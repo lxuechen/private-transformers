@@ -137,7 +137,7 @@ should be sufficient to get things started. Detailed instructions are in the rea
 - [T5ForConditionalGeneration](https://huggingface.co/docs/transformers/v4.20.1/en/model_doc/t5#transformers.T5ForConditionalGeneration)
 - [OPTForCausalLM](https://huggingface.co/docs/transformers/model_doc/opt#transformers.OPTForCausalLM)
 - [ViTForImageClassification](https://huggingface.co/docs/transformers/v4.20.1/en/model_doc/vit#transformers.ViTForImageClassification)
-(when isolated parameters are frozen, see [this example](examples/image_classification/main.py))
+  (when isolated parameters are frozen, see [this example](examples/image_classification/main.py))
 
 Not all models in the Hugging Face library are supported. The main additional work to support a model is to
 
@@ -167,7 +167,8 @@ composing multiple private mechanisms.
 - This codebase is not yet production-grade, e.g., cryptographically secure PRNGs are required for sampling noise -- our
   codebase currently does not use these strong PRNGs as they tend to slow down training. This codebase also isn't immune
   to [floating point representation attacks](https://github.com/pytorch/opacus/pull/260).
-- This codebase is born out of the need to experiment with various things for differentially private NLP rapidly. I've tried my best to write clean code, though parts of this codebase may be less tidy than I had hoped
+- This codebase is born out of the need to experiment with various things for differentially private NLP rapidly. I've
+  tried my best to write clean code, though parts of this codebase may be less tidy than I had hoped
   given the extremely tight timeline.
 
 ## Citation
@@ -175,12 +176,12 @@ composing multiple private mechanisms.
 If you found this codebase useful in your research, please consider citing:
 
 ```
-@misc{li2021large,
-      title={Large Language Models Can Be Strong Differentially Private Learners}, 
-      author={Xuechen Li and Florian Tramèr and Percy Liang and Tatsunori Hashimoto},
-      year={2021},
-      eprint={2110.05679},
-      archivePrefix={arXiv},
-      primaryClass={cs.LG}
+@inproceedings{
+li2022large,
+title={Large Language Models Can Be Strong Differentially Private Learners},
+author={Xuechen Li and Florian Tramer and Percy Liang and Tatsunori Hashimoto},
+booktitle={International Conference on Learning Representations},
+year={2022},
+url={https://openreview.net/forum?id=bVuP3ltATMz}
 }
 ```
