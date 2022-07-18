@@ -64,8 +64,10 @@ def main(
     if linear_probe:
         model.requires_grad_(False)
         model.classifier.requires_grad_(True)
+        logging.warning("Linear probe classification head.")
     else:
         private_transformers.freeze_isolated_params_for_vit(model)
+        logging.warning("Full fine-tune up to isolated embedding parameters.")
 
     optimizer = torch.optim.Adam(params=model.parameters(), lr=lr)
     privacy_engine = private_transformers.PrivacyEngine(
@@ -78,18 +80,22 @@ def main(
     )
     privacy_engine.attach(optimizer)
 
+    train_loss_meter = utils.AvgMeter()
     for epoch in range(epochs):
         optimizer.zero_grad()
-        for global_step, (images, labels) in tqdm.tqdm(enumerate(train_loader, 1), total=len(train_loader)):
+        pbar = tqdm.tqdm(enumerate(train_loader, 1), total=len(train_loader))
+        for global_step, (images, labels) in pbar:
             model.train()
             images, labels = tuple(t.to(device) for t in (images, labels))
             logits = model(pixel_values=images).logits
             loss = F.cross_entropy(logits, labels, reduction="none")
+            train_loss_meter.step(loss.mean().item())
             if global_step % gradient_accumulation_steps == 0:
                 optimizer.step(loss=loss)
                 optimizer.zero_grad()
             else:
                 optimizer.virtual_step(loss=loss)
+            pbar.set_description(f"Train loss running average: {train_loss_meter.item():.4f}")
         avg_xent, avg_zeon = evaluate(test_loader, model)
         logging.warning(
             f"Epoch: {epoch}, average cross ent loss: {avg_xent:.4f}, average zero one loss: {avg_zeon:.4f}"
