@@ -70,7 +70,7 @@ def _make_image_classification_data(
 ):
     return tuple(
         dict(
-            images=torch.randn(micro_batch_size, num_channels, height, width),
+            pixel_values=torch.randn(micro_batch_size, num_channels, height, width),
             labels=torch.randint(size=(micro_batch_size,), low=0, high=num_labels),
         )
         for _ in range(num_micro_batches)
@@ -79,16 +79,6 @@ def _make_image_classification_data(
 
 def _prepare_inputs(batch: dict):
     return {key: value.to(DEVICE) for key, value in batch.items()}
-
-
-def _prepare_vision_inputs(images: torch.Tensor, feature_extractor) -> dict:
-    return {
-        key: value.to(device=DEVICE, dtype=torch.get_default_dtype())
-        for key, value in feature_extractor(
-            # Work around for feature_extractor not being able to handle batched Tensor images of size (bsz, 3, H, W).
-            [image_i for image_i in images], return_tensors="pt"
-        ).items()
-    }
 
 
 @pytest.mark.parametrize(
@@ -493,9 +483,6 @@ def test_image_classification(clipping_mode: str, model_name_or_path: str, num_l
     freeze_isolated_params_for_vit(model)
     model.train()
 
-    # Create patches based on images.
-    feature_extractor = transformers.ViTFeatureExtractor.from_pretrained(model_name_or_path)
-
     batches = _make_image_classification_data(
         num_micro_batches=num_micro_batches, micro_batch_size=micro_batch_size, num_labels=num_labels,
     )
@@ -519,10 +506,9 @@ def test_image_classification(clipping_mode: str, model_name_or_path: str, num_l
     privacy_engine.attach(optimizer=optimizer)
     optimizer.zero_grad()  # Clears summed_grad, so don't run unless necessary.
     for i, batch in enumerate(batches, 1):
-        input_ids = _prepare_vision_inputs(batch["images"], feature_extractor=feature_extractor)
-        logits = clone1(**input_ids).logits
-        labels = batch["labels"].to(DEVICE)
-        loss = F.cross_entropy(logits, labels, reduction="none")
+        batch = _prepare_inputs(batch)
+        logits = clone1(**batch).logits
+        loss = F.cross_entropy(logits, batch["labels"], reduction="none")
 
         del batch
         if i == len(batches):
@@ -532,7 +518,7 @@ def test_image_classification(clipping_mode: str, model_name_or_path: str, num_l
 
     result1 = [param.grad for param in clone1_params]
     privacy_engine.detach()  # Restore`hooks_mode`.
-    del clone1, loss, logits, labels, optimizer
+    del clone1, loss, logits, optimizer
     gc.collect()
     torch.cuda.empty_cache()
 
@@ -543,14 +529,12 @@ def test_image_classification(clipping_mode: str, model_name_or_path: str, num_l
     optimizer = torch.optim.Adam(params=clone2_params, lr=lr)
     summed_grad = [torch.zeros_like(param) for param in clone2_params]
     for i, batch in tqdm.tqdm(enumerate(batches, 1), desc="over batches"):
-        for images, labels in tqdm.tqdm(utils.zip_(batch["images"], batch["labels"]), desc="over samples"):
+        for pixel_values, labels in tqdm.tqdm(utils.zip_(batch["pixel_values"], batch["labels"]), desc="over samples"):
             optimizer.zero_grad(set_to_none=True)  # Clear previous grad each time!
-            images = images[None, ...]
-            input_ids = _prepare_vision_inputs(images, feature_extractor)
-            labels = labels[None].to(DEVICE)
-
-            logits = clone2(**input_ids).logits
-            loss = F.cross_entropy(logits, labels, reduction="none").sum()
+            batch = {"pixel_values": pixel_values[None, ...], "labels": labels[None, ...]}
+            batch = _prepare_inputs(batch)
+            logits = clone2(**batch).logits
+            loss = F.cross_entropy(logits, batch["labels"], reduction="none").sum()
             loss.backward()
 
             with torch.no_grad():
