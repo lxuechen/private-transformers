@@ -565,10 +565,10 @@ class PrivacyEngine(object):
     def __repr__(self):
         return (
             f"PrivacyEngine(\n"
-            f"  target_epsilon={self.target_epsilon}, \n"
-            f"  target_delta={self.target_delta}, \n"
-            f"  noise_multiplier={self.noise_multiplier}, \n"
-            f"  effective_noise_multiplier={self.effective_noise_multiplier}, \n"
+            f"  target_epsilon={self.target_epsilon:.6f}, \n"
+            f"  target_delta={self.target_delta:.6f}, \n"
+            f"  noise_multiplier={self.noise_multiplier:.6f}, \n"
+            f"  effective_noise_multiplier={self.effective_noise_multiplier:.6f}, \n"
             f"  epochs={self.epochs}, \n"
             f"  max_grad_norm={self.max_grad_norm}, \n"
             f"  sample_rate={self.sample_rate}, \n"
