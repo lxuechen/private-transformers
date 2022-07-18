@@ -139,7 +139,9 @@ should be sufficient to get things started. Detailed instructions are in the rea
 - [ViTForImageClassification](https://huggingface.co/docs/transformers/v4.20.1/en/model_doc/vit#transformers.ViTForImageClassification)
   (when isolated parameters are frozen; see [this example](examples/image_classification/main.py))
 - [DeiTForImageClassification](https://huggingface.co/docs/transformers/model_doc/deit#transformers.DeiTForImageClassification)
+  (when isolated parameters are frozen)
 - [BeitForImageClassification](https://huggingface.co/docs/transformers/model_doc/beit#transformers.BeitForImageClassification)
+  (when isolated parameters are frozen)
 
 Not all models in the Hugging Face library are supported. The main additional work to support a model is to
 

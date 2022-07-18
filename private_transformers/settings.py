@@ -33,4 +33,6 @@ SUPPORTED_TRANSFORMERS = (
     transformers.models.t5.modeling_t5.T5ForConditionalGeneration,
     transformers.models.opt.modeling_opt.OPTForCausalLM,
     transformers.models.vit.modeling_vit.ViTForImageClassification,
+    transformers.models.deit.modeling_deit.DeiTForImageClassification,
+    transformers.models.beit.modeling_beit.BeitForImageClassification,
 )
