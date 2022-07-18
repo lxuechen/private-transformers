@@ -28,14 +28,14 @@ def evaluate(loader, model):
 
 def main(
     model_name_or_path='google/vit-base-patch16-224',
-    train_batch_size=2048,
-    per_device_train_batch_size=64,
-    test_batch_size=200,
+    train_batch_size=1000,
+    per_device_train_batch_size=50,
+    test_batch_size=500,
     epochs=10,
-    target_epsilon=3,
-    lr=1e-4,
+    target_epsilon=2,
+    lr=2e-3,
     max_grad_norm=0.1,
-    linear_probe=False,
+    linear_probe=True,
 ):
     gradient_accumulation_steps = train_batch_size // per_device_train_batch_size
 
