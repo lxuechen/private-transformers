@@ -463,7 +463,13 @@ def test_t5_layer_norm(batch_size=16, hidden_size=128, seq_len=4):
 
 @pytest.mark.parametrize(
     'clipping_mode,model_name_or_path,num_labels',
-    tuple(itertools.product(["ghost", "default"], ['google/vit-base-patch16-224'], [10]))
+    tuple(
+        itertools.product(
+            ["ghost", "default"],
+            ['google/vit-base-patch16-224', 'facebook/deit-tiny-patch16-224', 'microsoft/beit-base-patch16-224'],
+            [10]
+        )
+    )
 )
 def test_image_classification(clipping_mode: str, model_name_or_path: str, num_labels: int):
     lr = 1e-4
@@ -473,9 +479,9 @@ def test_image_classification(clipping_mode: str, model_name_or_path: str, num_l
     max_grad_norm = 1
 
     config = transformers.AutoConfig.from_pretrained(model_name_or_path)
-    config.hidden_dropout_prob = config.attention_probs_dropout_prob = 0.
+    config.hidden_dropout_prob = config.attention_probs_dropout_prob = config.drop_path_rate = 0.
     config.num_labels = num_labels
-    model = transformers.ViTForImageClassification.from_pretrained(
+    model = transformers.AutoModelForImageClassification.from_pretrained(
         model_name_or_path,
         config=config,
         ignore_mismatched_sizes=True  # Default pre-trained model has 1k classes; we only have 10.
@@ -550,9 +556,11 @@ def test_image_classification(clipping_mode: str, model_name_or_path: str, num_l
     gc.collect()
     torch.cuda.empty_cache()
 
-    for g1, g2, name in utils.zip_(result1, result2, param_names):
-        try:
-            torch.testing.assert_allclose(g1, g2, atol=1e-5, rtol=1e-6)
-        except AssertionError as e:
-            print(f"failed at {name}")
-            raise e
+    wrong_names = []
+    for r1, r2, param_name in utils.zip_(result1, result2, param_names):
+        if not torch.allclose(r1, r2, atol=1e-5, rtol=1e-6):
+            wrong_names.append(param_name)
+    if len(wrong_names) > 0:
+        raise AssertionError(
+            f"The following parameters have wrong gradients: \n{wrong_names}"
+        )
