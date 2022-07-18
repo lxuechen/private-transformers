@@ -18,7 +18,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 def evaluate(loader, model):
     model.eval()
     xents, zeons = [], []
-    for images, labels in enumerate(loader):
+    for i, (images, labels) in enumerate(loader):
         images, labels = tuple(t.to(device) for t in (images, labels))
         logits = model(pixel_values=images).logits
         xents.append(F.cross_entropy(logits, labels, reduction='none'))
