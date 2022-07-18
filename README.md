@@ -114,9 +114,6 @@ privacy_engine = PrivacyEngine(
 privacy_engine.attach(optimizer)
 ```
 
-We ran stringent numerical tests to ensure the double-backward implementation is correct. Check out files in the `tests`
-folder for more on this.
-
 ### Examples
 
 Code in the `examples` folder roughly reproduces our results for the table-to-text and classification tasks. There may

@@ -29,6 +29,12 @@ for i, batch in enumerate(batches, 1):
 It's a per example gradient clipping (then summing) technique that avoids instantiating per example gradients. It can
 make private training to have almost the same memory cost as non-private training.
 
+### How did you test that ghost clipping gives the 'right' gradients?
+
+We ran stringent numerical tests to ensure the double-backward implementation is correct (e.g., remove sources of
+randomness like dropout and compare gradients from double backward against gradients from autodiff + for loop).
+Check out files in the `tests` folder for more on this.
+
 ### When can't I use ghost clipping?
 
 Ghost clipping can't handle parameter sharing, that's why in our code, we separate the lm-head out from the embedding
