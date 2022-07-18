@@ -22,7 +22,7 @@ def evaluate(loader, model):
         images, labels = tuple(t.to(device) for t in (images, labels))
         logits = model(pixel_values=images).logits
         xents.append(F.cross_entropy(logits, labels, reduction='none'))
-        zeons.append(logits.argmax(dim=-1).neq(labels).float())
+        zeons.append(logits.argmax(dim=-1).ne(labels).float())
     return tuple(torch.cat(lst).mean().item() for lst in (xents, zeons))
 
 

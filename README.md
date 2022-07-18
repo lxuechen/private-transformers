@@ -137,7 +137,7 @@ should be sufficient to get things started. Detailed instructions are in the rea
 - [T5ForConditionalGeneration](https://huggingface.co/docs/transformers/v4.20.1/en/model_doc/t5#transformers.T5ForConditionalGeneration)
 - [OPTForCausalLM](https://huggingface.co/docs/transformers/model_doc/opt#transformers.OPTForCausalLM)
 - [ViTForImageClassification](https://huggingface.co/docs/transformers/v4.20.1/en/model_doc/vit#transformers.ViTForImageClassification)
-  (when isolated parameters are frozen, see [this example](examples/image_classification/main.py))
+  (when isolated parameters are frozen; see [this example](examples/image_classification/main.py))
 
 Not all models in the Hugging Face library are supported. The main additional work to support a model is to
 
