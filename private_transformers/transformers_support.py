@@ -693,8 +693,14 @@ def freeze_isolated_params_for_vit(model):
     Supporting per-sample gradients for these parameters is possible, but takes a lot of engineering effort.
     """
     for module in model.modules():
-        if isinstance(module, transformers.models.vit.modeling_vit.ViTEmbeddings):
+        if isinstance(
+            module,
+            (transformers.models.vit.modeling_vit.ViTEmbeddings,
+             transformers.models.deit.modeling_deit.DeiTEmbeddings,
+             transformers.models.beit.modeling_beit.BeitEmbeddings)
+        ):
             module.cls_token.requires_grad_(False)
             if module.mask_token is not None:
                 module.mask_token.requires_grad_(False)
-            module.position_embeddings.requires_grad_(False)
+            if module.position_embeddings is not None:
+                module.position_embeddings.requires_grad_(False)
