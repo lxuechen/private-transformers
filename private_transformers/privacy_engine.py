@@ -66,7 +66,7 @@ class PrivacyEngine(object):
             target_epsilon: The target privacy spending.
                 Only used to estimate the `noise_multiplier` if it is not set.
             target_delta: The target failure probability.
-                Defaults to 1 / (2 * sample_size) if not set.
+                Defaults to sample_size ** -1.1 if not set.
             alphas: The RDP orders for (ε, δ)-DP conversion. Useless if not accounting in RDP.
             record_snr: Record and report the signal-to-noise ratio --
                 ratio between norm of summed clipped gradient and norm of noise vector.
@@ -98,7 +98,7 @@ class PrivacyEngine(object):
         # Privacy parameters.
         sample_rate = batch_size / sample_size
         if target_delta is None:
-            target_delta = 1 / (2 * sample_size)
+            target_delta = sample_size ** -1.1
         if noise_multiplier is None:
             if target_epsilon is None or epochs is None:
                 raise ValueError(
