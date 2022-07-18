@@ -1,9 +1,10 @@
 """Utilities to make using PrivacyEngine easy with Hugging Face transformers."""
 import types
-from typing import Union
+from typing import Optional, Tuple, Union
 
 import torch
 import transformers
+from torch import nn
 from transformers.modeling_outputs import BaseModelOutput, BaseModelOutputWithPastAndCrossAttentions
 from transformers.utils import logging
 
@@ -13,7 +14,7 @@ logger = logging.get_logger(__name__)
 def forward_swapper(module):
     """Fix incompatibility between Opacus and Hugging Face.
 
-    Root cause is positional embedding without broadcasting.
+    Root cause is adding positional embedding with broadcasting.
     """
     if isinstance(module, (transformers.OpenAIGPTLMHeadModel, transformers.OpenAIGPTDoubleHeadsModel)):
         swap_openai_gpt_model_forward(module.transformer)
@@ -25,6 +26,10 @@ def forward_swapper(module):
         swap_bert_model_forward(module.bert)
     elif hasattr(module, 'albert'):
         swap_albert_model_forward(module.albert)
+    elif isinstance(module, transformers.T5ForConditionalGeneration):
+        swap_t5_model_forward(module)
+    elif isinstance(module, transformers.OPTForCausalLM):
+        swap_opt_model_forward(module)
 
 
 def swap_openai_gpt_model_forward(model: transformers.OpenAIGPTModel):
@@ -425,3 +430,284 @@ def swap_albert_model_forward(model: transformers.AlbertModel):
         return embeddings
 
     model.embeddings.forward = types.MethodType(new_forward, model.embeddings)
+
+
+def swap_t5_model_forward(model: nn.Module):
+    """Duplicates positional inputs for positional bias in T5Attention forward function."""
+
+    def compute_bias(self, query_length, key_length, batch_size, device=None):
+        """Compute binned relative position bias"""
+        if device is None:
+            device = self.relative_attention_bias.weight.device
+        context_position = torch.arange(query_length, dtype=torch.long, device=device)[:, None]
+        memory_position = torch.arange(key_length, dtype=torch.long, device=device)[None, :]
+        relative_position = memory_position - context_position  # shape (query_length, key_length)
+        relative_position_bucket = self._relative_position_bucket(
+            relative_position,  # shape (query_length, key_length)
+            bidirectional=(not self.is_decoder),
+            num_buckets=self.relative_attention_num_buckets,
+            max_distance=self.relative_attention_max_distance,
+        )
+        # ---
+        # lxuechen: Duplicate to make privacy work!
+        # shape (batch_size, q_len x k_len)
+        relative_position_bucket = relative_position_bucket.reshape(-1).unsqueeze(0).repeat(batch_size, 1)
+        values = self.relative_attention_bias(relative_position_bucket)  # shape (batch_size, q_len x k_len, num_heads)
+        # shape (batch_size, q_len, k_len, num_heads)
+        values = values.reshape(batch_size, query_length, key_length, values.size(-1))
+        values = values.permute([0, 3, 1, 2])  # shape (batch_size, num_heads, query_length, key_length)
+        # ---
+        return values
+
+        # Original non-duplicated code.
+        # values = self.relative_attention_bias(relative_position_bucket)  # shape (query_length, key_length, num_heads)
+        # values = values.permute([2, 0, 1]).unsqueeze(0)  # shape (1, num_heads, query_length, key_length)
+        # return values
+
+    def new_forward(
+        self,
+        hidden_states,
+        mask=None,
+        key_value_states=None,
+        position_bias=None,
+        past_key_value=None,
+        layer_head_mask=None,
+        query_length=None,
+        use_cache=False,
+        output_attentions=False,
+    ):
+        batch_size, seq_length = hidden_states.shape[:2]
+
+        real_seq_length = seq_length
+
+        if past_key_value is not None:
+            assert (
+                len(past_key_value) == 2
+            ), f"past_key_value should have 2 past states: keys and values. Got {len(past_key_value)} past states"
+            real_seq_length += past_key_value[0].shape[2] if query_length is None else query_length
+
+        key_length = real_seq_length if key_value_states is None else key_value_states.shape[1]
+
+        def shape(states):
+            """projection"""
+            return states.view(batch_size, -1, self.n_heads, self.key_value_proj_dim).transpose(1, 2)
+
+        def unshape(states):
+            """reshape"""
+            return states.transpose(1, 2).contiguous().view(batch_size, -1, self.inner_dim)
+
+        def project(hidden_states, proj_layer, key_value_states, past_key_value):
+            """projects hidden states correctly to key/query states"""
+            if key_value_states is None:
+                # self-attn
+                # (batch_size, n_heads, seq_length, dim_per_head)
+                hidden_states = shape(proj_layer(hidden_states))
+            elif past_key_value is None:
+                # cross-attn
+                # (batch_size, n_heads, seq_length, dim_per_head)
+                hidden_states = shape(proj_layer(key_value_states))
+
+            if past_key_value is not None:
+                if key_value_states is None:
+                    # self-attn
+                    # (batch_size, n_heads, key_length, dim_per_head)
+                    hidden_states = torch.cat([past_key_value, hidden_states], dim=2)
+                else:
+                    # cross-attn
+                    hidden_states = past_key_value
+            return hidden_states
+
+        # get query states
+        query_states = shape(self.q(hidden_states))  # (batch_size, n_heads, seq_length, dim_per_head)
+
+        # get key/value states
+        key_states = project(
+            hidden_states, self.k, key_value_states, past_key_value[0] if past_key_value is not None else None
+        )
+        value_states = project(
+            hidden_states, self.v, key_value_states, past_key_value[1] if past_key_value is not None else None
+        )
+
+        # compute scores
+        scores = torch.matmul(
+            query_states, key_states.transpose(3, 2)
+        )  # equivalent of torch.einsum("bnqd,bnkd->bnqk", query_states, key_states), compatible with onnx op>9
+
+        if position_bias is None:
+            if not self.has_relative_attention_bias:
+                # lxuechen: Need batch size in dim=0.
+                position_bias = torch.zeros(
+                    (batch_size, self.n_heads, real_seq_length, key_length), device=scores.device, dtype=scores.dtype
+                )
+                if self.gradient_checkpointing and self.training:
+                    position_bias.requires_grad = True
+            else:
+                # lxuechen: Need batch size aware, due to how embeddings work.
+                position_bias = self.compute_bias(
+                    real_seq_length, key_length, batch_size, device=scores.device,
+                )
+
+            # if key and values are already calculated
+            # we want only the last query position bias
+            if past_key_value is not None:
+                position_bias = position_bias[:, :, -hidden_states.size(1):, :]
+
+            if mask is not None:
+                position_bias = position_bias + mask  # (batch_size, n_heads, seq_length, key_length)
+
+        scores += position_bias
+        attn_weights = nn.functional.softmax(scores.float(), dim=-1).type_as(
+            scores
+        )  # (batch_size, n_heads, seq_length, key_length)
+        attn_weights = nn.functional.dropout(
+            attn_weights, p=self.dropout, training=self.training
+        )  # (batch_size, n_heads, seq_length, key_length)
+
+        # Mask heads if we want to
+        if layer_head_mask is not None:
+            attn_weights = attn_weights * layer_head_mask
+
+        attn_output = unshape(torch.matmul(attn_weights, value_states))  # (batch_size, seq_length, dim)
+        attn_output = self.o(attn_output)
+
+        present_key_value_state = (key_states, value_states) if (self.is_decoder and use_cache) else None
+        outputs = (attn_output,) + (present_key_value_state,) + (position_bias,)
+
+        if output_attentions:
+            outputs = outputs + (attn_weights,)
+        return outputs
+
+    for module in model.modules():
+        if isinstance(module, transformers.models.t5.modeling_t5.T5Attention):
+            module.forward = types.MethodType(new_forward, module)
+            module.compute_bias = types.MethodType(compute_bias, module)
+
+
+def swap_opt_model_forward(model):
+    """Fix OPTDecoderLayer's forward function.
+
+    OPTDecoderLayer's forward function has this weird reshape of activation in the middle.
+    """
+
+    def opt_decoder_layer_forward(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        layer_head_mask: Optional[torch.Tensor] = None,
+        output_attentions: Optional[bool] = False,
+        use_cache: Optional[bool] = False,
+        past_key_value: Optional[Tuple[torch.Tensor]] = None,
+    ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
+        """
+        Args:
+            hidden_states (`torch.FloatTensor`): input to the layer of shape `(batch, seq_len, embed_dim)`
+            attention_mask (`torch.FloatTensor`, *optional*): attention mask of size
+                `(batch, 1, tgt_len, src_len)` where padding elements are indicated by very large negative values.
+            layer_head_mask (`torch.FloatTensor`, *optional*): mask for attention heads in a given layer of size
+                `(encoder_attention_heads,)`.
+            output_attentions (`bool`, *optional*):
+                Whether or not to return the attentions tensors of all attention layers. See `attentions` under
+                returned tensors for more detail.
+            use_cache (`bool`, *optional*):
+                If set to `True`, `past_key_values` key value states are returned and can be used to speed up decoding
+                (see `past_key_values`).
+            past_key_value (`Tuple(torch.FloatTensor)`, *optional*): cached past key and value projection states
+        """
+
+        residual = hidden_states
+
+        # 125m, 1.7B, ..., 175B applies layer norm BEFORE attention
+        if self.do_layer_norm_before:
+            hidden_states = self.self_attn_layer_norm(hidden_states)
+
+        # Self Attention
+        hidden_states, self_attn_weights, present_key_value = self.self_attn(
+            hidden_states=hidden_states,
+            past_key_value=past_key_value,
+            attention_mask=attention_mask,
+            layer_head_mask=layer_head_mask,
+            output_attentions=output_attentions,
+        )
+        hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
+        hidden_states = residual + hidden_states
+
+        # 350m applies layer norm AFTER attention
+        if not self.do_layer_norm_before:
+            hidden_states = self.self_attn_layer_norm(hidden_states)
+
+        # Fully Connected
+        residual = hidden_states
+
+        # 125m, 1.7B, ..., 175B applies layer norm BEFORE attention
+        if self.do_layer_norm_before:
+            hidden_states = self.final_layer_norm(hidden_states)
+
+        hidden_states = self.fc1(hidden_states)
+        hidden_states = self.activation_fn(hidden_states)
+
+        hidden_states = self.fc2(hidden_states)
+        hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
+
+        hidden_states = (residual + hidden_states)
+
+        # Original below, why reshape???
+
+        # hidden_states_shape = hidden_states.shape
+        # hidden_states = hidden_states.reshape(-1, hidden_states.size(-1))
+        # residual = hidden_states
+        #
+        # # 125m, 1.7B, ..., 175B applies layer norm BEFORE attention
+        # if self.do_layer_norm_before:
+        #     hidden_states = self.final_layer_norm(hidden_states)
+        #
+        # hidden_states = self.fc1(hidden_states)
+        # hidden_states = self.activation_fn(hidden_states)
+        #
+        # hidden_states = self.fc2(hidden_states)
+        # hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
+        #
+        # hidden_states = (residual + hidden_states).view(hidden_states_shape)
+
+        # 350m applies layer norm AFTER attention
+        if not self.do_layer_norm_before:
+            hidden_states = self.final_layer_norm(hidden_states)
+
+        outputs = (hidden_states,)
+
+        if output_attentions:
+            outputs += (self_attn_weights,)
+
+        if use_cache:
+            outputs += (present_key_value,)
+
+        return outputs
+
+    for module in model.modules():
+        if isinstance(module, transformers.models.opt.modeling_opt.OPTDecoderLayer):
+            module.forward = types.MethodType(opt_decoder_layer_forward, module)
+
+
+def freeze_isolated_params_for_vit(model):
+    """Freeze the isolated parameters in Vi-T models.
+
+    Supporting per-sample gradients for these parameters is possible, but takes a lot of engineering effort.
+    """
+    for module in model.modules():
+        if isinstance(
+            module,
+            (transformers.models.vit.modeling_vit.ViTEmbeddings,
+             transformers.models.deit.modeling_deit.DeiTEmbeddings,
+             transformers.models.beit.modeling_beit.BeitEmbeddings)
+        ):
+            module.cls_token.requires_grad_(False)
+            if module.mask_token is not None:
+                module.mask_token.requires_grad_(False)
+            if module.position_embeddings is not None:
+                module.position_embeddings.requires_grad_(False)
+        if isinstance(module, transformers.models.beit.modeling_beit.BeitRelativePositionBias):
+            module.relative_position_bias_table.requires_grad_(False)
+        if isinstance(module, transformers.models.beit.modeling_beit.BeitLayer):
+            if module.lambda_1 is not None:
+                module.lambda_1.requires_grad_(False)
+            if module.lambda_2 is not None:
+                module.lambda_2.requires_grad_(False)

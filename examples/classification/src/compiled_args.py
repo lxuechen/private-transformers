@@ -35,15 +35,14 @@ class PrivacyArguments:
         default="yes", metadata={"help": "Train non-privately if True."}
     )
     accounting_mode: str = field(
-        default="rdp_cks", metadata={"help": "One of (`rdp`, `gdp`, `rdp_cks`, `all`)."}
+        default="rdp", metadata={"help": "One of (`rdp`, `glw`, `all`)."}
     )
-    ghost_clipping: str = field(
-        default="no"
+    clipping_mode: str = field(
+        default="default"
     )
 
     def __post_init__(self):
         self.non_private = self.non_private.lower() in true_tags  # noqa
-        self.ghost_clipping = self.ghost_clipping.lower() in true_tags  # noqa
 
 
 @dataclass

@@ -10,8 +10,9 @@ of [Hugging Face transformers](https://huggingface.co/transformers/).
 
 ## What is this? Why an extra codebase?
 
-- This codebase provides a privacy engine that builds off [Opacus](https://github.com/pytorch/opacus), but works way
-  more smoothly with [Hugging Face's transformers library](https://github.com/huggingface/transformers).
+- This codebase provides a privacy engine that builds off and rewrites [Opacus](https://github.com/pytorch/opacus) so
+  that integration with
+  [Hugging Face's transformers library](https://github.com/huggingface/transformers) is easy.
 - Additionally, we support the *ghost clipping* technique (see Section 4 of [this](https://arxiv.org/pdf/2110.05679.pdf)
   preprint on how it works) which allows privately training large transformers with considerably reduced memory cost --
   in many cases, almost as light as non-private training -- at a modest run-time overhead.
@@ -82,7 +83,7 @@ optimizer.step(loss=loss)
 
 The biggest differences compared to Opacus are:
 
-- We require the per-example loss (a 1-D tensor) be passed into `optimizer.step` (or `optimizer.virtual_step`)
+- We require the per-example loss (a 1-D tensor) be passed into `optimizer.step` (or `optimizer.virtual_step`).
 - The per-example loss must be passed in as a *keyword argument*.
 - `loss.backward()` shouldn't be called on the user end; it's called internally in `optimizer.step` (
   or `optimizer.virtual_step`).
@@ -108,13 +109,10 @@ privacy_engine = PrivacyEngine(
     epochs=3,
     max_grad_norm=0.1,
     target_epsilon=3,
-    ghost_clipping=True,  # The only change you need to make!
+    clipping_mode="ghost",  # The only change you need to make!
 )
 privacy_engine.attach(optimizer)
 ```
-
-We ran stringent numerical tests to ensure the double-backward implementation is correct. Check out files in the `tests`
-folder for more on this.
 
 ### Examples
 
@@ -124,26 +122,39 @@ should be sufficient to get things started. Detailed instructions are in the rea
 
 ### Currently supported [Hugging Face models](https://huggingface.co/transformers/pretrained_models.html)
 
-- [OpenAIGPTLMHeadModel](https://huggingface.co/transformers/_modules/transformers/models/openai/modeling_openai.html#OpenAIGPTLMHeadModel)
-- [OpenAIGPTDoubleHeadsModel](https://huggingface.co/transformers/_modules/transformers/models/openai/modeling_openai.html#OpenAIGPTDoubleHeadsModel)
-- [GPT2LMHead](https://huggingface.co/transformers/_modules/transformers/models/gpt2/modeling_gpt2.html#GPT2LMHeadModel)
-- [GPT2DoubleLMHead](https://huggingface.co/transformers/_modules/transformers/models/gpt2/modeling_gpt2.html#GPT2DoubleHeadsModel)
-- [BertForSequenceClassification](https://huggingface.co/transformers/_modules/transformers/models/bert/modeling_bert.html#BertForSequenceClassification)
-- [RobertaForSequenceClassification](https://huggingface.co/transformers/model_doc/roberta.html#robertaforsequenceclassification)
-- [AlbertForSequenceClassification](https://huggingface.co/transformers/_modules/transformers/models/albert/modeling_albert.html#AlbertForSequenceClassification)
+- [OpenAIGPTLMHeadModel](https://huggingface.co/docs/transformers/model_doc/openai-gpt#transformers.OpenAIGPTLMHeadModel)
+- [OpenAIGPTDoubleHeadsModel](https://huggingface.co/docs/transformers/model_doc/openai-gpt#transformers.OpenAIGPTDoubleHeadsModel)
+- [GPT2LMHeadModel](https://huggingface.co/docs/transformers/model_doc/gpt2#transformers.GPT2LMHeadModel)
+- [GPT2DoubleHeadsModel](https://huggingface.co/docs/transformers/model_doc/gpt2#transformers.GPT2DoubleHeadsModel)
+- [BertForSequenceClassification](https://huggingface.co/docs/transformers/model_doc/bert#transformers.BertForSequenceClassification)
+- [RobertaForSequenceClassification](https://huggingface.co/docs/transformers/model_doc/roberta#transformers.RobertaForSequenceClassification)
+- [AlbertForSequenceClassification](https://huggingface.co/docs/transformers/model_doc/albert#transformers.AlbertForSequenceClassification)
+- [BartForConditionalGeneration](https://huggingface.co/docs/transformers/model_doc/bart#transformers.BartForConditionalGeneration)
+  (when positional embedding layers are frozen)
+- [T5ForConditionalGeneration](https://huggingface.co/docs/transformers/v4.20.1/en/model_doc/t5#transformers.T5ForConditionalGeneration)
+- [OPTForCausalLM](https://huggingface.co/docs/transformers/model_doc/opt#transformers.OPTForCausalLM)
+- [ViTForImageClassification](https://huggingface.co/docs/transformers/v4.20.1/en/model_doc/vit#transformers.ViTForImageClassification)
+  (when isolated parameters are frozen; see [this example](examples/image_classification/main.py))
+- [DeiTForImageClassification](https://huggingface.co/docs/transformers/model_doc/deit#transformers.DeiTForImageClassification)
+  (when isolated parameters are frozen)
+- [BeitForImageClassification](https://huggingface.co/docs/transformers/model_doc/beit#transformers.BeitForImageClassification)
+  (when isolated parameters are frozen)
 
-Not all models in the Hugging Face library are supported. The main additional work here is to
+Not all models in the Hugging Face library are supported. The main additional work to support a model is to
 
-1. support per-example gradients for bespoke modules
+1. Support per-example gradients for bespoke modules
    (e.g., [T5LayerNorm](https://huggingface.co/transformers/_modules/transformers/modeling_t5.html)), and
-2. ensure `position_ids` are repeated.
+2. Ensure `position_ids` are repeated (duplicated along batch dim 0). Normally, to save memory, one creates positional
+   embedding for one instance and rely on broadcasting when there're multiple instances within a batch. This creates a
+   problem with per-sample gradient accumulation, so we instead duplicate inputs to positional embeddings.
 
 We plan to support more models in the future if there's such a need. Feel free to open an issue if you may want to try
 out specific models that aren't in the current list.
 
 ## FAQ
 
-I wrote some answers to potential questions [here](https://github.com/lxuechen/private-transformers/blob/main/FAQ.md).
+I wrote some stuff to potential questions [here](https://github.com/lxuechen/private-transformers/blob/main/FAQ.md).
+These include performing gradient accumulation, ghost clipping, and freezing parts of a model.
 
 ## Acknowledgements
 
@@ -155,9 +166,10 @@ composing multiple private mechanisms.
 ## Disclaimer
 
 - This codebase is not yet production-grade, e.g., cryptographically secure PRNGs are required for sampling noise -- our
-  codebase currently does not use these strong PRNGs. This codebase also isn't immune to [floating point representation attacks](https://github.com/pytorch/opacus/pull/260).
-- This codebase is born out of the need to experiment with various things for differentially private NLP in rapidly
-  succession. I've tried my best to write clean code, though parts of this codebase may be less tidy than I had hoped
+  codebase currently does not use these strong PRNGs as they tend to slow down training. This codebase also isn't immune
+  to [floating point representation attacks](https://github.com/pytorch/opacus/pull/260).
+- This codebase is born out of the need to experiment with various things for differentially private NLP rapidly. I've
+  tried my best to write clean code, though parts of this codebase may be less tidy than I had hoped
   given the extremely tight timeline.
 
 ## Citation
@@ -165,12 +177,12 @@ composing multiple private mechanisms.
 If you found this codebase useful in your research, please consider citing:
 
 ```
-@misc{li2021large,
-      title={Large Language Models Can Be Strong Differentially Private Learners}, 
-      author={Xuechen Li and Florian Tramèr and Percy Liang and Tatsunori Hashimoto},
-      year={2021},
-      eprint={2110.05679},
-      archivePrefix={arXiv},
-      primaryClass={cs.LG}
+@inproceedings{
+li2022large,
+title={Large Language Models Can Be Strong Differentially Private Learners},
+author={Xuechen Li and Florian Tramer and Percy Liang and Tatsunori Hashimoto},
+booktitle={International Conference on Learning Representations},
+year={2022},
+url={https://openreview.net/forum?id=bVuP3ltATMz}
 }
 ```

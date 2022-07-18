@@ -13,7 +13,7 @@ def _get_command(
     model_name_or_path,
     data_dir,
     learning_rate,
-    ghost_clipping,
+    clipping_mode: str,
     non_private,
     target_epsilon,
     few_shot_type,
@@ -81,7 +81,7 @@ python -m classification.run_classification \
   --per_device_train_batch_size {per_device_train_batch_size} \
   --gradient_accumulation_steps {gradient_accumulation_steps} \
   --per_device_eval_batch_size 8 \
-  --per_example_max_grad_norm 0.1 --ghost_clipping {ghost_clipping} \
+  --per_example_max_grad_norm 0.1 --clipping_mode {clipping_mode} \
   --learning_rate {learning_rate} \
   --lr_decay yes \
   --adam_epsilon 1e-08 \
@@ -108,7 +108,7 @@ def main(
     model_name_or_path="roberta-base",
     data_dir="classification/data/original",
     learning_rate=None,
-    ghost_clipping="yes",
+    clipping_mode="ghost",
     non_private="no",
     target_epsilon=8,
     attention_only="no",
@@ -132,7 +132,7 @@ def main(
         model_name_or_path=model_name_or_path,
         data_dir=data_dir,
         learning_rate=learning_rate,
-        ghost_clipping=ghost_clipping,
+        clipping_mode=clipping_mode,
         non_private=non_private,
         target_epsilon=target_epsilon,
         few_shot_type=few_shot_type,

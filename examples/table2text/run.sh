@@ -6,7 +6,7 @@ task_mode=${3}
 model_name_or_path=${4:-"gpt2"} # One of distilgpt2, gpt2, gpt2-medium, gpt2-large
 target_epsilon=${5:-"8"}
 cache_dir=${6}
-ghost_clipping=${7:-"yes"} # Fill 'no' to turn this off.
+clipping_mode=${7:-"ghost"} # Fill 'default' to turn this off.
 non_private=${8:-"no"}
 
 if [[ ${task_mode} == "e2e" ]]; then
@@ -46,4 +46,5 @@ python -m table2text.run_language_modeling \
   --per_example_max_grad_norm 0.1 --target_delta ${target_delta} --target_epsilon ${target_epsilon} \
   --learning_rate ${learning_rate} --lr_decay "no" --num_train_epochs ${num_train_epochs} --per_device_train_batch_size 16 --gradient_accumulation_steps 64 \
   --non_private ${non_private} \
-  --ghost_clipping ${ghost_clipping}
+  --clipping_mode "${clipping_mode}" \
+  --cache_dir ${cache_dir}

@@ -27,12 +27,13 @@ setuptools.setup(
     install_requires=[
         "torch>=1.8.0",
         "prv-accountant",
-        "transformers",
+        "transformers>=4.20.1",  # v0.1.0 uses 4.16.2.
         "numpy",
         "scipy",
         "jupyterlab",
         "jupyter",
-        "ml-swissknife"
+        "ml-swissknife",
+        "opt_einsum",
     ],
     python_requires='~=3.8',
     classifiers=[
