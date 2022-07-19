@@ -31,7 +31,7 @@ Use the `run_wrapper.py` script in the folder. This Python script produces a tex
 Supply at least 2 arguments:
 
 - `--output_dir`: path to a folder where results will be written
-- `--task_name`: name of task; one of `sst-2`, `qnli`, `qqp`, `qnli`
+- `--task_name`: name of task; one of `sst-2`, `qnli`, `qqp`, `mnli`
 
 For instance, run the following under the `examples/` folder:
 

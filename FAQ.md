@@ -27,7 +27,12 @@ for i, batch in enumerate(batches, 1):
 ### What is ghost clipping?
 
 It's a per example gradient clipping (then summing) technique that avoids instantiating per example gradients. It can
-make private training to have almost the same memory cost as non-private training.
+make private training have almost the same memory cost as non-private training.
+The method is based on accumulating gradient norms on a layer-by-layer basis first demonstrated
+in [this work](https://arxiv.org/abs/2009.03106).
+We implemented and extended this method so that computing gradient norms for linear layers can be cheap; this is based on a
+linear algebra identity that we derived in [this work](https://arxiv.org/pdf/2110.05679.pdf).
+[Subsequent work](https://arxiv.org/abs/2205.10683) adapted the overall approach to suit training convolutional layers.
 
 ### How did you test that ghost clipping gives the 'right' gradients?
 
