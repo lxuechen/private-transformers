@@ -48,8 +48,7 @@ def requires_grad(module: nn.Module, recurse: bool = False) -> bool:
     Returns:
         Flag indicate if any parameters require gradients
     """
-    requires_grad = any(p.requires_grad for p in module.parameters(recurse))
-    return requires_grad
+    return any(p.requires_grad for p in module.parameters(recurse))
 
 
 def add_hooks(model: nn.Module, loss_reduction: str = "mean"):
@@ -73,14 +72,7 @@ def add_hooks(model: nn.Module, loss_reduction: str = "mean"):
     handles = []
     for name, layer in model.named_modules():
         if type(layer) in _supported_layers_grad_samplers:
-            # Check if the layer has trainable parameters.
-            is_trainable = False
-            for p in layer.parameters(recurse=False):
-                if p.requires_grad:
-                    is_trainable = True
-                    break
-
-            if is_trainable:
+            if requires_grad(layer, recurse=False):
                 handles.append(layer.register_forward_hook(_capture_activations))
 
                 def this_backward(this_layer, grad_input, grad_output):
@@ -114,26 +106,10 @@ def enable_hooks():
     _hooks_disabled = False
 
 
-def is_supported(layer: nn.Module) -> bool:
-    """Checks if the layer is supported by this library."""
-    return get_layer_type(layer) in list(_supported_layers_grad_samplers.keys())
-
-
 def _capture_activations(layer: nn.Module, inputs: Tuple, outputs: Tuple):
     """Forward hook handler captures and saves activations."""
-    layer_type = get_layer_type(layer)
-    if (
-        not requires_grad(layer)
-        or layer_type not in _supported_layers_grad_samplers.keys()
-        or not layer.training
-    ):
+    if not requires_grad(layer) or not layer.training or _hooks_disabled:
         return
-
-    if _hooks_disabled:
-        return
-
-    if get_layer_type(layer) not in _supported_layers_grad_samplers.keys():
-        raise ValueError("Hook installed on unsupported layer")
 
     if not hasattr(layer, "activations"):
         layer.activations = []
@@ -157,15 +133,7 @@ def _capture_backprops(
 
 def _compute_grad_sample(layer: nn.Module, backprops: Tuple, loss_reduction: str):
     """Computes per-sample gradients with respect to the parameters."""
-    layer_type = get_layer_type(layer)
-    if (
-        not requires_grad(layer)
-        or layer_type not in _supported_layers_grad_samplers.keys()
-        or not layer.training
-    ):
-        return
-
-    if _hooks_disabled:
+    if not requires_grad(layer) or not layer.training or _hooks_disabled:
         return
 
     if not hasattr(layer, "activations"):
@@ -190,7 +158,7 @@ def _compute_grad_sample(layer: nn.Module, backprops: Tuple, loss_reduction: str
         raise ValueError(f"loss_reduction = {loss_reduction}. Only 'sum' and 'mean' losses are supported")
 
     # compute grad sample for individual layers
-    compute_layer_grad_sample = _supported_layers_grad_samplers.get(get_layer_type(layer))
+    compute_layer_grad_sample = _supported_layers_grad_samplers.get(type(layer))
     compute_layer_grad_sample(layer, A, B)
 
     if (not isinstance(layer.activations, list) or len(layer.activations) == 0) and hasattr(layer, "max_batch_len"):
