@@ -16,6 +16,7 @@ from typing import Tuple
 
 import numpy as np
 import torch
+import transformers.pytorch_utils
 from opt_einsum import contract
 from torch import nn
 from torch.functional import F
@@ -313,11 +314,11 @@ def _compute_conv2d_grad_sample(layer: nn.Conv2d, activations: Tuple[torch.Tenso
 
 
 _supported_layers_grad_samplers = {
-    "Embedding": _compute_embedding_grad_sample,
-    "Linear": _compute_linear_grad_sample,
-    "Conv2d": _compute_conv2d_grad_sample,  # nn.Conv2d.
-    "LayerNorm": _compute_layer_norm_grad_sample,
-    "Conv1D": _custom_compute_conv1d_grad_sample,  # HuggingFace Open-AI GPT-2.
-    "T5LayerNorm": _compute_t5_layer_norm_grad_sample,
-    "OPTLearnedPositionalEmbedding": _compute_opt_learned_positional_embedding_grad_sample,
+    nn.Embedding: _compute_embedding_grad_sample,
+    nn.Linear: _compute_linear_grad_sample,
+    nn.Conv2d: _compute_conv2d_grad_sample,
+    nn.LayerNorm: _compute_layer_norm_grad_sample,
+    transformers.pytorch_utils.Conv1D: _custom_compute_conv1d_grad_sample,
+    transformers.models.t5.modeling_t5.T5LayerNorm: _compute_t5_layer_norm_grad_sample,
+    OPTLearnedPositionalEmbedding: _compute_opt_learned_positional_embedding_grad_sample,
 }

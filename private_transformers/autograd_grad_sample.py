@@ -52,20 +52,6 @@ def requires_grad(module: nn.Module, recurse: bool = False) -> bool:
     return requires_grad
 
 
-def get_layer_type(layer: nn.Module) -> str:
-    """
-    Returns the name of the type of the given layer.
-
-    Args:
-        layer: The module corresponding to the layer whose type
-            is being queried.
-
-    Returns:
-        Name of the class of the layer
-    """
-    return layer.__class__.__name__
-
-
 def add_hooks(model: nn.Module, loss_reduction: str = "mean"):
     r"""
     Adds hooks to model to save activations and backprop values.
@@ -86,7 +72,7 @@ def add_hooks(model: nn.Module, loss_reduction: str = "mean"):
 
     handles = []
     for name, layer in model.named_modules():
-        if get_layer_type(layer) in _supported_layers_grad_samplers.keys():
+        if type(layer) in _supported_layers_grad_samplers:
             # Check if the layer has trainable parameters.
             is_trainable = False
             for p in layer.parameters(recurse=False):

@@ -34,6 +34,7 @@ setuptools.setup(
         "jupyter",
         "ml-swissknife",
         "opt_einsum",
+        "pytest"
     ],
     python_requires='~=3.8',
     classifiers=[

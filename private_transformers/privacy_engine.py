@@ -248,6 +248,11 @@ class PrivacyEngine(object):
         # This option was included to help with another spectrum analysis project.
         callback: Optional[Callable] = None,
     ):
+        if loss.dim() != 1:
+            raise ValueError(
+                f"Expected `loss` to be the per-example loss 1-D tensor, but got a tensor with dims={loss.dim()}."
+            )
+
         if self.clipping_mode == ClippingMode.ghost:
             if callback is not None:
                 raise ValueError("Ghost clipping does not support `callback` in `optimizer.step`.")
@@ -359,11 +364,6 @@ class PrivacyEngine(object):
     @torch.enable_grad()
     def _double_backward(self, loss: torch.Tensor):
         """Given per-example losses, backward twice to accumulate summed clipped gradients in `.grad`."""
-        if loss.dim() != 1:
-            raise ValueError(
-                f"Expected `loss` to be the per-example loss 1-D tensor, but got a tensor with dims={loss.dim()}."
-            )
-
         first_loss = loss.sum()
         first_loss.backward(retain_graph=True)
 
@@ -437,9 +437,6 @@ class PrivacyEngine(object):
 
         Removes `.grad_sample` and `.grad` for each variable that requires grad at the end.
         """
-        if loss.dim() != 1:
-            raise ValueError(f"Expected `loss` to be a the per-example loss 1-D tensor.")
-
         with torch.enable_grad():
             loss.sum(dim=0).backward()
 
@@ -466,12 +463,8 @@ class PrivacyEngine(object):
             for tensor in norm_sample:
                 shapes[tensor.size()] += 1
 
-            major_shape = None
-            major_count = 0
-            for shape, count in shapes.items():
-                if count > major_count:
-                    major_shape = shape
-            del shape, count
+            # Get the shape that most tensors have.
+            major_shape, major_count = max(shapes.items(), key=lambda x: x[1])
 
             # Check which tensors don't have the major shape!
             extra_msg = f" \n*** Major shape: {major_shape}"
