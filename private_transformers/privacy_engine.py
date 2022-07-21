@@ -463,12 +463,8 @@ class PrivacyEngine(object):
             for tensor in norm_sample:
                 shapes[tensor.size()] += 1
 
-            major_shape = None
-            major_count = 0
-            for shape, count in shapes.items():
-                if count > major_count:
-                    major_shape = shape
-            del shape, count
+            # Get the shape that most tensors have.
+            major_shape, major_count = max(shapes.items(), key=lambda x: x[1])
 
             # Check which tensors don't have the major shape!
             extra_msg = f" \n*** Major shape: {major_shape}"
