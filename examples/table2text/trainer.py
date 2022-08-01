@@ -496,7 +496,7 @@ class Trainer:
                     else:
                         if store_grads_dir is not None:
                             def callback(privacy_engine):
-                                named_params = privacy_engine.privacy_engine
+                                named_params = privacy_engine.named_params
                                 flat_grad = torch.cat([param.summed_grad.flatten() for _, param in named_params])
                                 torch.save(
                                     {"flat_grad": flat_grad.cpu().float()},
