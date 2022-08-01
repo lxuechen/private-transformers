@@ -32,16 +32,17 @@ def load_data(ckpts_dir, num_ckpts, start_index, batch_size):
 
 
 def pca(
-    grads_dir="/mnt/disks/disk-2/dump/privlm/roberta/sst-2/grad_trajectory",
-    dump_dir="/mnt/disks/disk-2/dump/privlm/roberta/sst-2/orthproj",
+    train_dir="/mnt/disks/disk-2/dump/privlm/roberta/sst-2",
     n=2000,
-    k=2000,
-    num_power_iteration=100,
+    k=1000,
+    num_power_iteration=10,
     batch_size=200,
     seed=42,
     start_index=0,
 ):
     utils.manual_seed(seed)
+    grads_dir = utils.join(train_dir, 'grad_trajectory')
+    dump_dir = utils.join(train_dir, 'orthproj')
 
     orthogonal_iteration(
         loader=load_data(ckpts_dir=grads_dir, num_ckpts=n, start_index=start_index, batch_size=batch_size),
