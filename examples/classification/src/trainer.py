@@ -445,6 +445,7 @@ class Trainer(transformers.Trainer):
                                 """Store clipped gradients for spectrum analysis."""
                                 named_params = privacy_engine.named_params
                                 flat_grad = torch.cat([param.summed_grad.flatten() for _, param in named_params])
+                                flat_grad.div_(privacy_engine.batch_size)
                                 torch.save(
                                     {"flat_grad": flat_grad.cpu().float()},
                                     utils.join(store_grads_dir, f'global_step_{self.global_step:06d}.ckpt')
