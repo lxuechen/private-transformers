@@ -27,7 +27,7 @@ def run_save_grads(num_train_epochs=60):
 
 
 def run_pca():
-    # python -m classification.runs.main --task "run_pca"
+    # python -m classification.runs.rebuttal_neurips_2022 --task "run_pca"
     commands = []
     command = 'python -m classification.numerical \
         --task "pca" \
@@ -54,7 +54,7 @@ def run_pca():
 
 
 def run_retrain(seeds=(42, 9008, 0), model_name_or_paths=("roberta-base",), run=True):
-    # python -m classification.runs.main --task "run_retrain"
+    # python -m classification.runs.rebuttal_neurips_2022 --task "run_retrain"
     commands = []
     for seed in seeds:
         for model_name_or_path in model_name_or_paths:
