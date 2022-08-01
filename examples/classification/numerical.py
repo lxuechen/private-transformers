@@ -39,6 +39,7 @@ def pca(
     batch_size=200,
     seed=42,
     start_index=0,
+    chunk_size=100,
 ):
     utils.manual_seed(seed)
     grads_dir = utils.join(train_dir, 'grad_trajectory')
@@ -50,7 +51,8 @@ def pca(
         num_power_iteration=num_power_iteration,
         device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
         dump_dir=dump_dir,
-        dtype=torch.get_default_dtype()
+        chunk_size=chunk_size,
+        dtype=torch.get_default_dtype(),
     )
 
 
@@ -160,6 +162,7 @@ def orthogonal_iteration(
     device: Optional[torch.device] = None,
     dump_dir=None,
     chunk_size=100,
+    chunk_size2=10,
     eval_steps=5,
 ):
     """Simultaneous iteration for finding eigenvectors with the largest eigenvalues in absolute value.
@@ -178,6 +181,7 @@ def orthogonal_iteration(
         dump_dir: Directory to dump the sequence of results.
         dtype: Precision in string format.
         chunk_size: Size of chunks for processing the dimension that loops over eigenvectors.
+        chunk_size2: Size of chunks for orthogonalization.
         eval_steps: Number of steps before a data reconstruction evaluation.
 
     Returns:
@@ -202,7 +206,7 @@ def orthogonal_iteration(
             device=device, disable_tqdm=disable_tqdm
         )
         eigenvectors = _orthogonalize(
-            matrix=matrix,
+            matrix=matrix, chunk_size=chunk_size2,
             device=device, disable_tqdm=disable_tqdm
         )  # (p, k).
         eigenvalues = _eigenvectors_to_eigenvalues(
