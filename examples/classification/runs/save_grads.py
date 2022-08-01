@@ -20,6 +20,9 @@ def _get_cmd(model_name_or_path: str, num_train_epochs=60):
         --non_private "no" \
         --eval_steps 50 \
         --randomly_initialize "no" \
+        --per_device_train_batch_size 25 \
+        --batch_size 1000 \
+        --clipping_mode "default" \
         --store_grads "yes"'''
 
 
