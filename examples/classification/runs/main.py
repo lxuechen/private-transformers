@@ -2,6 +2,30 @@ import fire
 from ml_swissknife import utils
 
 
+def run_save_grads(num_train_epochs=60):
+    commands = []
+    for model_name_or_path in ("roberta-base", "roberta-large"):
+        output_dir = utils.join("/home/t-lc/dump/privlm", 'rebuttal', f'run-{model_name_or_path}')
+        command = f'''python -m classification.run_wrapper \
+            --output_dir {output_dir} \
+            --task_name "sst-2" \
+            --model_name_or_path "{model_name_or_path}" \
+            --attention_only "yes" \
+            --static_lm_head "yes" \
+            --num_train_epochs {num_train_epochs} \
+            --eval_spectrum "no" \
+            --non_private "no" \
+            --eval_steps 50 \
+            --randomly_initialize "no" \
+            --per_device_train_batch_size 25 \
+            --batch_size 1000 \
+            --clipping_mode "default" \
+            --store_grads "yes"'''
+        commands.append(command)
+    utils.gpu_scheduler(commands, excludeID=(0,), excludeUUID=(0,))
+    return commands
+
+
 def run_pca():
     # python -m classification.runs.main --task "run_pca"
     commands = []
@@ -26,6 +50,7 @@ def run_pca():
     commands.append(command)
 
     utils.gpu_scheduler(commands, excludeID=(0,), log=False)
+    return commands
 
 
 def run_retrain(seeds=(42, 9008, 0), model_name_or_paths=("roberta-base",), run=True):
@@ -64,7 +89,11 @@ def run_retrain(seeds=(42, 9008, 0), model_name_or_paths=("roberta-base",), run=
 
 
 def main(task):
-    utils.runs_tasks(task=task, task_names=("run_pca", "run_retrain"), task_callables=(run_pca, run_retrain))
+    utils.runs_tasks(
+        task=task,
+        task_names=("run_pca", "run_retrain", "run_save_grads"),
+        task_callables=(run_pca, run_retrain, run_save_grads)
+    )
 
 
 if __name__ == "__main__":
