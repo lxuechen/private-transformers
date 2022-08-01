@@ -67,7 +67,7 @@ def plot1(
 
 def plot2(
     base_dir,
-    seeds=(42, 101, 20598, 90828, 9008),
+    seeds=(42, 9008, 0),
     ranks=(10, 20, 100, None),
     dump_dir="./classification/plots",
     markers=('x', '^', '+', 'o'),
