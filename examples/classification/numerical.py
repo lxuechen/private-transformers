@@ -40,6 +40,7 @@ def pca(
     seed=42,
     start_index=0,
     chunk_size=100,
+    chunk_size_2=10,
 ):
     utils.manual_seed(seed)
     grads_dir = utils.join(train_dir, 'grad_trajectory')
@@ -52,6 +53,7 @@ def pca(
         device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
         dump_dir=dump_dir,
         chunk_size=chunk_size,
+        chunk_size_2=chunk_size_2,
         dtype=torch.get_default_dtype(),
     )
 
@@ -133,8 +135,7 @@ def _check_error(
     return err_abs.item(), err_rel.item()
 
 
-def _orthogonalize(matrix, device, disable_tqdm: bool, chunk_size: int = 100):
-    # TODO: Don't put whole matrix on GPU to save memory.
+def _orthogonalize(matrix, device, disable_tqdm: bool, chunk_size_2=10):
     matrix = matrix.to(device)
     for i in tqdm.tqdm(range(matrix.size(1)), desc="orthogonalize", disable=disable_tqdm):
         # Normalize the ith column.
@@ -145,12 +146,35 @@ def _orthogonalize(matrix, device, disable_tqdm: bool, chunk_size: int = 100):
             rest = matrix[:, i + 1:]  # (p, r).
             start_idx = 0
             while start_idx < rest.size(1):
-                batch = rest[:, start_idx:start_idx + chunk_size]
+                batch = rest[:, start_idx:start_idx + chunk_size_2]
                 # Broadcast, point-wise multiply, and then reduce seems to
                 #   suffer from less imprecision than direct matmul or mm.
                 batch -= torch.sum(col * batch, dim=0) * col
-                start_idx += chunk_size
+                start_idx += chunk_size_2
     return matrix.cpu()
+
+
+def _orthogonalize_v2(matrix, device, disable_tqdm: bool, chunk_size_2=10):
+    # Memory saving: don't store `matrix` on device.
+    # Note this is an in-place operation!
+    for i in tqdm.tqdm(range(matrix.size(1)), desc="orthogonalize", disable=disable_tqdm):
+        # Normalize the ith column.
+        col = matrix[:, i: i + 1].to(device)  # (p, 1). copy!
+        col /= col.norm(2)
+        matrix[:, i: i + 1] = col.cpu()
+
+        # Remove contribution of this component for remaining columns.
+        if i + 1 < matrix.size(1):
+            rest = matrix[:, i + 1:]  # (p, r).
+            start_idx = 0
+            while start_idx < rest.size(1):
+                batch = rest[:, start_idx:start_idx + chunk_size_2].to(device)  # copy!
+                # Broadcast, point-wise multiply, and then reduce seems to
+                #   suffer from less imprecision than direct matmul or mm.
+                batch -= torch.sum(col * batch, dim=0) * col
+                rest[:, start_idx:start_idx + chunk_size_2] = batch.cpu()
+                start_idx += chunk_size_2
+    return matrix
 
 
 def orthogonal_iteration(
@@ -162,8 +186,9 @@ def orthogonal_iteration(
     device: Optional[torch.device] = None,
     dump_dir=None,
     chunk_size=100,
-    chunk_size2=10,
+    chunk_size_2=10,
     eval_steps=5,
+    use_v2=False,
 ):
     """Simultaneous iteration for finding eigenvectors with the largest eigenvalues in absolute value.
 
@@ -181,8 +206,9 @@ def orthogonal_iteration(
         dump_dir: Directory to dump the sequence of results.
         dtype: Precision in string format.
         chunk_size: Size of chunks for processing the dimension that loops over eigenvectors.
-        chunk_size2: Size of chunks for orthogonalization.
+        chunk_size_2: Size of chunks for orthogonalization.
         eval_steps: Number of steps before a data reconstruction evaluation.
+        use_v2: Use memory saving version of orthogonalization. Very slow due to tensor transfer across devices.
 
     Returns:
         eigenvectors: Tensor of selected basis of size (p, k).
@@ -192,7 +218,8 @@ def orthogonal_iteration(
     batch, = next(iter(loader))
     p = batch.size(1)
     k = min(k, p, n)
-    eigenvectors = torch.randn(size=(p, k), dtype=dtype)
+    eigenvectors = torch.randn(size=(p, k), dtype=dtype)  # This step will be very slow for large models.
+    orthogonalizer = _orthogonalize_v2 if use_v2 else _orthogonalize
 
     err_abs, err_rel = _check_error(
         loader=loader, eigenvectors=eigenvectors, chunk_size=chunk_size,
@@ -205,8 +232,8 @@ def orthogonal_iteration(
             loader=loader, eigenvectors=eigenvectors, chunk_size=chunk_size,
             device=device, disable_tqdm=disable_tqdm
         )
-        eigenvectors = _orthogonalize(
-            matrix=matrix, chunk_size=chunk_size2,
+        eigenvectors = orthogonalizer(
+            matrix=matrix, chunk_size_2=chunk_size_2,
             device=device, disable_tqdm=disable_tqdm
         )  # (p, k).
         eigenvalues = _eigenvectors_to_eigenvalues(
@@ -273,11 +300,22 @@ def test_mem_saving_matmul(n=100, d=10):
     torch.testing.assert_allclose(matmul, matmul_expected)
 
 
+def test__orthogonalize_v2():
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    p, k, chunk_size_2 = int(50 * 10 ** 6), 500, 10
+    matrix = torch.randn(p, k)
+
+    out2 = _orthogonalize_v2(matrix=matrix.clone(), device=device, disable_tqdm=False, chunk_size_2=chunk_size_2)
+    out1 = _orthogonalize(matrix=matrix.clone(), device=device, disable_tqdm=False, chunk_size_2=chunk_size_2)
+
+    torch.testing.assert_close(out1, out2)
+
+
 def main(task="pca", **kwargs):
     utils.runs_tasks(
         task=task,
-        task_names=("pca", "test_orthogonal_iteration", "test_mem_saving_matmul"),
-        task_callables=(pca, test_orthogonal_iteration, test_mem_saving_matmul),
+        task_names=("pca", "test_orthogonal_iteration", "test_mem_saving_matmul", "test__orthogonalize_v2"),
+        task_callables=(pca, test_orthogonal_iteration, test_mem_saving_matmul, test__orthogonalize_v2),
         **kwargs,
     )
 
@@ -286,4 +324,5 @@ if __name__ == "__main__":
     # python -m classification.numerical --task "pca" --n 100 --k 100
     # python -m classification.numerical --task "test_orthogonal_iteration"
     # python -m classification.numerical --task "test_mem_saving_matmul"
+    # python -m classification.numerical --task "test__orthogonalize_v2"
     fire.Fire(main)
