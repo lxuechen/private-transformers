@@ -21,7 +21,7 @@ import collections
 import gc
 import json
 import os
-from typing import Any, Dict, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Optional, Union
 
 import torch
 import torch.nn.functional as F
@@ -370,10 +370,10 @@ class Trainer(transformers.Trainer):
                 P = orthogonal_projection  # noqa
                 if orthogonal_projection.device != flat_grad.device or orthogonal_projection.dtype != flat_grad.dtype:
                     P = orthogonal_projection.to(flat_grad)  # noqa
-                Pt_flat_g = torch.matmul(P.t(), flat_grad)  # noqa
+                Pt_flat_g = torch.matmul(P.T, flat_grad)  # noqa
                 # Matrix multiplication with very large dimension (millions in this case) results in weird issues.
                 # In this case, `torch.matmul` fails due to calling some algo. Resorting to `torch.mm` for now.
-                flat_grad = torch.mm(orthogonal_projection, Pt_flat_g[:, None]).squeeze()
+                flat_grad = torch.mm(P, Pt_flat_g[:, None]).squeeze()
 
                 # Redistribute.
                 grads = utils.flat_to_shape(flat_tensor=flat_grad, shapes=[param.shape for _, param in named_params])
