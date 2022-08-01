@@ -7,6 +7,7 @@ if __name__ == "__main__":
         --task "pca" \
         --n 2000 \
         --k 1000 \
+        --batch_size 40 \
         --train_dir "/home/t-lc/dump/privlm/rebuttal/run-roberta-base" \
         --num_power_iteration 10'
     commands.append(command)
@@ -16,7 +17,7 @@ if __name__ == "__main__":
         --n 2000 \
         --k 1000 \
         --train_dir "/home/t-lc/dump/privlm/rebuttal/run-roberta-large" \
-        --batch_size 40 \
+        --batch_size 20 \
         --num_power_iteration 10'
     commands.append(command)
 
