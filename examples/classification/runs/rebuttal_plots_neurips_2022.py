@@ -16,6 +16,7 @@ from ..spectrum import density
 def plot1(
     ckpt_path: str,  # Path to eigenvalues.
     dump_dir="./classification/plots",
+    img_name="",
     k=500,
     **kwargs,
 ):
@@ -23,8 +24,14 @@ def plot1(
 
     Run on gvm.
     """
+    # Roberta-large
+    # python -m classification.runs.rebuttal_plots_neurips_2022 --task "plot1" --ckpt_path "/home/t-lc/dump/privlm/rebuttal/run-roberta-large/orthproj/eigenvalues/global_step_000005.evals" --img_name "large" --k 100
+    if img_name != "":
+        img_name = f'-{img_name}'
+
     state_dicts = torch.load(ckpt_path)
     eigenvalues = state_dicts["eigenvalues"].numpy()
+    k = min(k, len(eigenvalues))
 
     # Linear fit.
     x = np.arange(1, k + 1)
@@ -45,7 +52,7 @@ def plot1(
                    f"{linfit.rvalue ** 2.:.3f}$)"),
     ]
     utils.plot_wrapper(
-        img_path=utils.join(dump_dir, "eigenvalue-linfit"),
+        img_path=utils.join(dump_dir, f"eigenvalue-linfit{img_name}"),
         suffixes=(".png", ".pdf"),
         plots=plots,
         options=dict(xlabel="$k$", ylabel="$\lambda(H^\\top H)^{1/2}$", xscale='log', yscale='log')
@@ -56,7 +63,7 @@ def plot1(
     evals = np.sqrt(eigenvalues[None, :k])
     den, gri = density.eigv_to_density(evals, sigma_squared=sigma_squared, grid_len=300000, grid_expand=3e-4)
     utils.plot_wrapper(
-        img_path=utils.join(dump_dir, 'eigenvalue-density'),
+        img_path=utils.join(dump_dir, f'eigenvalue-density{img_name}'),
         suffixes=(".png", ".pdf"),
         plots=[dict(x=gri, y=den, label=f"bandwidth $\sigma={math.sqrt(sigma_squared):.5f}$")],
         options=dict(xlabel="$\lambda(H^\\top H)^{1/2}$", ylabel="Density of KDE",
@@ -66,25 +73,38 @@ def plot1(
 
 
 def plot2(
-    base_dir,
+    base_dir: str,
+    img_name="",
     seeds=(42, 9008, 0),
     ranks=(10, 20, 100, None),
     dump_dir="./classification/plots",
     markers=('x', '^', '+', 'o'),
+    roberta_large=False,
     **kwargs,
 ):
     """Retrain.
 
     Run locally.
     """
+    # Roberta-large
+    # python -m classification.runs.rebuttal_plots_neurips_2022 --task "plot2" --img_name "large" --base_dir "/home/t-lc/dump/privlm/rebuttal" --roberta_large True
+    if img_name != "":
+        img_name = f'-{img_name}'
+
     errorbars = []
     for rank, marker in utils.zip_(ranks, markers):
         results = []
         for seed in seeds:
-            output_dir = utils.join(
-                f"{base_dir}/roberta_prompt_retrain_{rank}_{seed}/sst-2",
-                'log_history.json'
-            )
+            if roberta_large:
+                output_dir = utils.join(
+                    f"{base_dir}/roberta_prompt_large_retrain_{rank}_{seed}/sst-2",
+                    'log_history.json'
+                )
+            else:
+                output_dir = utils.join(
+                    f"{base_dir}/roberta_prompt_retrain_{rank}_{seed}/sst-2",
+                    'log_history.json'
+                )
             record = utils.jload(output_dir)
             results.append([dumpi['dev']['eval_acc'] for dumpi in record])
             steps = [dumpi['step'] for dumpi in record]
@@ -94,7 +114,7 @@ def plot2(
         errorbar = dict(x=steps, y=mu, yerr=si, label=label, marker=marker)
         errorbars.append(errorbar)
 
-    img_path = utils.join(dump_dir, 'plot2')
+    img_path = utils.join(dump_dir, f'plot2{img_name}')
     utils.plot_wrapper(
         img_path=img_path,
         suffixes=('.png', '.pdf'),
