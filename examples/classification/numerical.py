@@ -165,6 +165,30 @@ def _eigenvectors_to_eigenvalues(
     return (torch.cat(nums) / torch.cat(dens)).cpu()
 
 
+def _eigenvectors_to_eigenvalues_v2(
+    loader: DataLoader, eigenvectors: torch.Tensor,
+    disable_tqdm: bool,
+    **kwargs,
+):
+    num_cuda_devices = torch.cuda.device_count()
+    assert num_cuda_devices > 0, "v2 is only supported in distributed settings."
+    devices = tuple(range(num_cuda_devices))
+
+    evec_chunks = torch.tensor_split(eigenvectors, len(devices), dim=1)
+    evec_chunks = tuple(evec_chunk.to(device) for evec_chunk, device in utils.zip_(evec_chunks, devices))
+
+    dens = [(chunk ** 2.).sum(dim=0) for chunk in evec_chunks]
+    nums = [torch.zeros_like(den) for den in dens]
+    for (batch,) in tqdm.tqdm(loader, disable=disable_tqdm):
+        for chunk_id, chunk in enumerate(evec_chunks):
+            batch = batch.to(chunk.device, non_blocking=True)
+            vec = batch @ chunk  # (nj, ki).
+            nums[chunk_id] += (vec ** 2.).sum(dim=0)
+    return torch.cat(
+        tuple((num / den).cpu() for num, den in utils.zip_(nums, dens))
+    )
+
+
 def _check_error(
     loader: DataLoader,
     eigenvectors: torch.Tensor,
@@ -375,10 +399,11 @@ def orthogonal_iteration(
     # logging.warning(f"before iteration, abs error: {err_abs:.6f}, rel error: {err_rel:.6f}")
 
     for global_step in tqdm.tqdm(range(1, num_power_iteration + 1), desc="power iteration", disable=disable_tqdm):
-        matrix = _mem_saving_matmul(
+        matrix = _mem_saving_matmul_v2(
             loader=loader, eigenvectors=eigenvectors, chunk_size=chunk_size,
             device=device, disable_tqdm=disable_tqdm
         )
+        # TODO: add back!
         # matrix = torch.zeros_like(eigenvectors)
         # eigenvectors = orthogonalizer(
         #     matrix=matrix, chunk_size_2=chunk_size_2,
