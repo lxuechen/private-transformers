@@ -84,22 +84,27 @@ def _mem_saving_matmul_v2(
     loader: DataLoader,
     eigenvectors: torch.Tensor,
     disable_tqdm: bool,
+    **kwargs,
 ):
     num_cuda_devices = torch.cuda.device_count()
     assert num_cuda_devices > 0, "v2 is only supported in distributed settings."
     devices = tuple(range(num_cuda_devices))
 
-    # TODO: Fix this.
     out = torch.zeros_like(eigenvectors)
-    nsteps = int(math.ceil(eigenvectors.size(1) / chunk_size))
-    for idx in tqdm.tqdm(range(nsteps), desc="matmul", disable=disable_tqdm):
-        start_idx = int(idx * chunk_size)
-        chunk = eigenvectors[:, start_idx:start_idx + chunk_size].to(device)  # GPU. (p, k1).
-        this_out = torch.zeros_like(chunk)  # GPU. (p, k1).
-        for (batch,) in loader:
-            batch = batch.to(device)
-            this_out += torch.mm(batch.T, torch.mm(batch, chunk))
-        out[:, start_idx:start_idx + chunk_size] = this_out.cpu()
+
+    evec_chunks = torch.tensor_split(eigenvectors, len(devices), dim=1)
+    evec_chunks = tuple(evec_chunk.to(device) for evec_chunk, device in utils.zip_(evec_chunks, devices))
+
+    chunk_num_cols = (0,) + tuple(evec_chunk.size(1) for evec_chunk in evec_chunks)
+    chunk_num_cols_cumsum = np.cumsum(chunk_num_cols)
+    chunk_col_ranges = tuple(utils.zip_(chunk_num_cols_cumsum[:-1], chunk_num_cols_cumsum[1:]))
+
+    for chunk, chunk_col_range in utils.zip_(evec_chunks, chunk_col_ranges):
+        this_out = torch.zeros(size=chunk.size())  # GPU. (p, k1).
+        for (batch,) in tqdm.tqdm(loader, desc="batches", disable=disable_tqdm):
+            batch = batch.to(chunk.device, non_blocking=True)
+            this_out += torch.mm(batch.T, torch.mm(batch, chunk)).cpu()
+        out[:, chunk_col_range[0]:chunk_col_range[1]] = this_out.cpu()
     return out
 
 
@@ -332,21 +337,22 @@ def orthogonal_iteration(
     eigenvectors = torch.randn(size=(p, k), dtype=dtype)  # This step will be very slow for large models.
     orthogonalizer = _orthogonalize_v3
 
-    err_abs, err_rel = _check_error_v2(
-        loader=loader, eigenvectors=eigenvectors, chunk_size=chunk_size,
-        device=device, disable_tqdm=disable_tqdm,
-    )
-    logging.warning(f"before iteration, abs error: {err_abs:.6f}, rel error: {err_rel:.6f}")
+    # err_abs, err_rel = _check_error_v2(
+    #     loader=loader, eigenvectors=eigenvectors, chunk_size=chunk_size,
+    #     device=device, disable_tqdm=disable_tqdm,
+    # )
+    # logging.warning(f"before iteration, abs error: {err_abs:.6f}, rel error: {err_rel:.6f}")
 
     for global_step in tqdm.tqdm(range(1, num_power_iteration + 1), desc="power iteration", disable=disable_tqdm):
         matrix = _mem_saving_matmul(
             loader=loader, eigenvectors=eigenvectors, chunk_size=chunk_size,
             device=device, disable_tqdm=disable_tqdm
         )
-        eigenvectors = orthogonalizer(
-            matrix=matrix, chunk_size_2=chunk_size_2,
-            device=device, disable_tqdm=disable_tqdm
-        )  # (p, k).
+        # matrix = torch.zeros_like(eigenvectors)
+        # eigenvectors = orthogonalizer(
+        #     matrix=matrix, chunk_size_2=chunk_size_2,
+        #     device=device, disable_tqdm=disable_tqdm
+        # )  # (p, k).
         eigenvalues = _eigenvectors_to_eigenvalues(
             loader=loader, eigenvectors=eigenvectors, chunk_size=chunk_size,
             device=device, disable_tqdm=disable_tqdm
@@ -396,7 +402,7 @@ def test_orthogonal_iteration(n=100, d=20, k=10):
     torch.testing.assert_allclose(eigenvalues, eigenvalues_expected.flip(dims=(0,))[:k], atol=1e-4, rtol=1e-4)
 
 
-def test_mem_saving_matmul(n=100, d=10):
+def test_mem_saving_matmul(n=1000, d=100):
     torch.set_default_dtype(torch.float64)
 
     features = torch.randn(n, d)
@@ -407,6 +413,19 @@ def test_mem_saving_matmul(n=100, d=10):
     matmul = _mem_saving_matmul(
         loader, Q, chunk_size=10, device=None, disable_tqdm=True
     )
+    matmul_expected = features.T @ features @ Q
+    torch.testing.assert_allclose(matmul, matmul_expected)
+
+
+def test_mem_saving_matmul_v2(n=1000, d=100):
+    torch.set_default_dtype(torch.float64)
+
+    features = torch.randn(n, d)
+    dataset = TensorDataset(features)
+    loader = DataLoader(dataset, batch_size=100, shuffle=False, drop_last=False)
+    Q = torch.randn(d, d)
+
+    matmul = _mem_saving_matmul_v2(loader, Q, disable_tqdm=True)
     matmul_expected = features.T @ features @ Q
     torch.testing.assert_allclose(matmul, matmul_expected)
 
@@ -451,9 +470,9 @@ def main(task="pca", **kwargs):
     utils.runs_tasks(
         task=task,
         task_names=("pca", "test_orthogonal_iteration", "test_mem_saving_matmul", "test__orthogonalize_v2",
-                    "test__orthogonalize_v3", "test__check_error_v2"),
+                    "test__orthogonalize_v3", "test__check_error_v2", "test_mem_saving_matmul_v2"),
         task_callables=(pca, test_orthogonal_iteration, test_mem_saving_matmul, test__orthogonalize_v2,
-                        test__orthogonalize_v3, test__check_error_v2),
+                        test__orthogonalize_v3, test__check_error_v2, test_mem_saving_matmul_v2),
         **kwargs,
     )
 
@@ -465,4 +484,5 @@ if __name__ == "__main__":
     # python -m classification.numerical --task "test__orthogonalize_v2"
     # python -m classification.numerical --task "test__orthogonalize_v3"
     # python -m classification.numerical --task "test__check_error_v2"
+    # python -m classification.numerical --task "test_mem_saving_matmul_v2"
     fire.Fire(main)
