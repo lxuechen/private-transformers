@@ -486,9 +486,9 @@ def test_mem_saving_matmul_v2(n=1000, d=100):
 def try_mem_saving_matmul_v2(n=1000, d=int(50 * 10 ** 6), k=250):
     features = torch.randn(n, d)
     dataset = TensorDataset(features)
-    loader = DataLoader(dataset, batch_size=10, shuffle=False, drop_last=False)
+    loader = DataLoader(dataset, batch_size=20, shuffle=False, drop_last=False)
     Q = torch.randn(d, k)
-    matmul = _mem_saving_matmul_v2(loader, Q, disable_tqdm=True)
+    matmul = _mem_saving_matmul_v2(loader, Q, disable_tqdm=False)
 
 
 def test__check_error_v2(n=1000, d=10, k=100):
