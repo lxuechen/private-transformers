@@ -67,7 +67,29 @@ def _mem_saving_matmul(
     disable_tqdm: bool,
 ):
     """Compute AQ."""
-    # TODO: distributed compute.
+    out = torch.zeros_like(eigenvectors)
+    nsteps = int(math.ceil(eigenvectors.size(1) / chunk_size))
+    for idx in tqdm.tqdm(range(nsteps), desc="matmul", disable=disable_tqdm):
+        start_idx = int(idx * chunk_size)
+        chunk = eigenvectors[:, start_idx:start_idx + chunk_size].to(device)  # GPU. (p, k1).
+        this_out = torch.zeros_like(chunk)  # GPU. (p, k1).
+        for (batch,) in loader:
+            batch = batch.to(device)
+            this_out += torch.mm(batch.T, torch.mm(batch, chunk))
+        out[:, start_idx:start_idx + chunk_size] = this_out.cpu()
+    return out
+
+
+def _mem_saving_matmul_v2(
+    loader: DataLoader,
+    eigenvectors: torch.Tensor,
+    disable_tqdm: bool,
+):
+    num_cuda_devices = torch.cuda.device_count()
+    assert num_cuda_devices > 0, "v2 is only supported in distributed settings."
+    devices = tuple(range(num_cuda_devices))
+
+    # TODO: Fix this.
     out = torch.zeros_like(eigenvectors)
     nsteps = int(math.ceil(eigenvectors.size(1) / chunk_size))
     for idx in tqdm.tqdm(range(nsteps), desc="matmul", disable=disable_tqdm):
@@ -147,14 +169,15 @@ def _check_error_v2(
     assert num_cuda_devices > 0, "v2 is only supported in distributed settings."
     devices = tuple(range(num_cuda_devices))
 
+    evec_chunks = torch.tensor_split(eigenvectors, len(devices), dim=1)
+    evec_chunks = tuple(evec_chunk.to(device) for evec_chunk, device in utils.zip_(evec_chunks, devices))
+
     ref_abs = []
     err_abs = []
     for (batch,) in tqdm.tqdm(loader, desc="check error", disable=disable_tqdm):
         batch_recs = []
-        evec_chunks = torch.tensor_split(eigenvectors, len(devices), dim=1)
-        for evec_chunk, device in utils.zip_(evec_chunks, devices):
-            this_batch = batch.to(device)
-            evec_chunk = evec_chunk.to(device)
+        for evec_chunk in evec_chunks:
+            this_batch = batch.to(evec_chunk.device, non_blocking=True)
             batch_recs.append(
                 torch.mm(evec_chunk, torch.mm(evec_chunk.T, this_batch.T)).T
             )
