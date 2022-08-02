@@ -8,6 +8,7 @@ import math
 from typing import Optional, Tuple
 
 import fire
+import numpy as np
 import torch
 import tqdm
 from ml_swissknife import utils
@@ -177,6 +178,56 @@ def _orthogonalize_v2(matrix, device, disable_tqdm: bool, chunk_size_2=10):
     return matrix
 
 
+def _orthogonalize_v3(matrix, device, disable_tqdm: bool, chunk_size_2=20):
+    if device.type == "cuda":
+        devices = tuple(range(torch.cuda.device_count()))
+    else:
+        devices = (device,)
+
+    matrix_chunks = torch.tensor_split(matrix, len(devices), dim=1)
+    matrix_chunks = tuple(
+        matrix_chunk.to(matrix_device) for matrix_chunk, matrix_device in utils.zip_(matrix_chunks, devices)
+    )
+    chunk_num_cols = (0,) + tuple(matrix_chunk.size(1) for matrix_chunk in matrix_chunks)
+    chunk_num_cols_cumsum = np.cumsum(chunk_num_cols)
+    chunk_col_ranges = tuple(utils.zip_(chunk_num_cols_cumsum[:-1], chunk_num_cols_cumsum[1:]))
+
+    def col_idx_to_chunk_idx_and_offset(col_idx):
+        """Returns the index of the matrix chunk and the offset to index into."""
+        # k, offset = col_idx_to_chunk_idx_and_offset(col_idx)
+        # col = matrix_chunks[k][offset]
+        for k, (head, tail) in enumerate(chunk_col_ranges):
+            if head <= col_idx < tail:
+                offset = col_idx - head
+                return k, offset
+        raise ValueError("Should not reach here...")
+
+    def gram_schmidt_helper(col_, rest_):
+        col_ = col_.to(rest_)
+        start_idx = 0
+        while start_idx < rest_.size(1):
+            batch = rest_[:, start_idx:start_idx + chunk_size_2]
+            batch -= torch.sum(col_ * batch, dim=0) * col_
+            start_idx += chunk_size_2
+
+    for i in tqdm.tqdm(range(matrix.size(1)), desc="orthogonalize", disable=disable_tqdm):
+        k, offset = col_idx_to_chunk_idx_and_offset(i)
+        matrix_chunk = matrix_chunks[k]
+
+        col = matrix_chunk[:, offset:offset + 1]
+        col /= col.norm(2)
+        if i + 1 < matrix.size(1):
+            # current matrix_chunk.
+            rest = matrix_chunk[:, offset + 1:]
+            gram_schmidt_helper(col, rest)
+
+            # future matrix_chunk.
+            for future_matrix_chunk in matrix_chunks[k + 1:]:
+                rest = future_matrix_chunk
+                gram_schmidt_helper(col, rest)
+    return torch.cat(tuple(matrix_chunk.cpu() for matrix_chunk in matrix_chunks), dim=1)
+
+
 def orthogonal_iteration(
     loader: DataLoader,
     k: int,
@@ -311,11 +362,24 @@ def test__orthogonalize_v2():
     torch.testing.assert_close(out1, out2)
 
 
+def test__orthogonalize_v3():
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    p, k, chunk_size_2 = 10000, 500, 10
+    matrix = torch.randn(p, k)
+
+    out2 = _orthogonalize_v3(matrix=matrix.clone(), device=device, disable_tqdm=False, chunk_size_2=chunk_size_2)
+    out1 = _orthogonalize(matrix=matrix.clone(), device=device, disable_tqdm=False, chunk_size_2=chunk_size_2)
+
+    torch.testing.assert_close(out1, out2)
+
+
 def main(task="pca", **kwargs):
     utils.runs_tasks(
         task=task,
-        task_names=("pca", "test_orthogonal_iteration", "test_mem_saving_matmul", "test__orthogonalize_v2"),
-        task_callables=(pca, test_orthogonal_iteration, test_mem_saving_matmul, test__orthogonalize_v2),
+        task_names=("pca", "test_orthogonal_iteration", "test_mem_saving_matmul", "test__orthogonalize_v2",
+                    "test__orthogonalize_v3"),
+        task_callables=(pca, test_orthogonal_iteration, test_mem_saving_matmul, test__orthogonalize_v2,
+                        test__orthogonalize_v3),
         **kwargs,
     )
 
@@ -325,4 +389,5 @@ if __name__ == "__main__":
     # python -m classification.numerical --task "test_orthogonal_iteration"
     # python -m classification.numerical --task "test_mem_saving_matmul"
     # python -m classification.numerical --task "test__orthogonalize_v2"
+    # python -m classification.numerical --task "test__orthogonalize_v3"
     fire.Fire(main)
