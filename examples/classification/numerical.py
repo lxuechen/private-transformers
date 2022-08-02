@@ -80,6 +80,33 @@ def _mem_saving_matmul(
     return out
 
 
+# def _mem_saving_matmul_v2(
+#     loader: DataLoader,
+#     eigenvectors: torch.Tensor,
+#     disable_tqdm: bool,
+#     **kwargs,
+# ):
+#     num_cuda_devices = torch.cuda.device_count()
+#     assert num_cuda_devices > 0, "v2 is only supported in distributed settings."
+#     devices = tuple(range(num_cuda_devices))
+#
+#     out = torch.zeros_like(eigenvectors)
+#
+#     evec_chunks = torch.tensor_split(eigenvectors, len(devices), dim=1)
+#     evec_chunks = tuple(evec_chunk.to(device) for evec_chunk, device in utils.zip_(evec_chunks, devices))
+#
+#     chunk_num_cols = (0,) + tuple(evec_chunk.size(1) for evec_chunk in evec_chunks)
+#     chunk_num_cols_cumsum = np.cumsum(chunk_num_cols)
+#     chunk_col_ranges = tuple(utils.zip_(chunk_num_cols_cumsum[:-1], chunk_num_cols_cumsum[1:]))
+#
+#     for chunk, chunk_col_range in utils.zip_(evec_chunks, chunk_col_ranges):
+#         this_out = torch.zeros(size=chunk.size())  # GPU. (p, k1).
+#         for (batch,) in tqdm.tqdm(loader, desc="batches", disable=disable_tqdm):
+#             batch = batch.to(chunk.device, non_blocking=True)
+#             this_out += torch.mm(batch.T, torch.mm(batch, chunk)).cpu()
+#         out[:, chunk_col_range[0]:chunk_col_range[1]] = this_out.cpu()
+#     return out
+
 def _mem_saving_matmul_v2(
     loader: DataLoader,
     eigenvectors: torch.Tensor,
@@ -99,12 +126,16 @@ def _mem_saving_matmul_v2(
     chunk_num_cols_cumsum = np.cumsum(chunk_num_cols)
     chunk_col_ranges = tuple(utils.zip_(chunk_num_cols_cumsum[:-1], chunk_num_cols_cumsum[1:]))
 
-    for chunk, chunk_col_range in utils.zip_(evec_chunks, chunk_col_ranges):
-        this_out = torch.zeros(size=chunk.size())  # GPU. (p, k1).
-        for (batch,) in tqdm.tqdm(loader, desc="batches", disable=disable_tqdm):
+    for (batch,) in tqdm.tqdm(loader, desc="batches", disable=disable_tqdm):
+        outs = []
+        for chunk in evec_chunks:
             batch = batch.to(chunk.device, non_blocking=True)
-            this_out += torch.mm(batch.T, torch.mm(batch, chunk)).cpu()
-        out[:, chunk_col_range[0]:chunk_col_range[1]] = this_out.cpu()
+            outs.append(torch.mm(batch.T, torch.mm(batch, chunk)))
+
+        outs = [o.cpu() for o in outs]
+        for o, chunk_col_range in utils.zip_(outs, chunk_col_ranges):
+            out[:, chunk_col_range[0]:chunk_col_range[1]] += o
+
     return out
 
 
@@ -422,7 +453,7 @@ def test_mem_saving_matmul_v2(n=1000, d=100):
 
     features = torch.randn(n, d)
     dataset = TensorDataset(features)
-    loader = DataLoader(dataset, batch_size=100, shuffle=False, drop_last=False)
+    loader = DataLoader(dataset, batch_size=min(100, 2), shuffle=False, drop_last=False)
     Q = torch.randn(d, d)
 
     matmul = _mem_saving_matmul_v2(loader, Q, disable_tqdm=True)
