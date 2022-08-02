@@ -1,6 +1,6 @@
 """Run the following separately, since it's slow.
 
-python -m classification.numerical --task "pca" --n 1000 --k 250 --train_dir "/home/t-lc/dump/privlm/rebuttal/run-roberta-large" --batch_size 20 --chunk_size 50 --num_power_iteration 10
+python -m classification.numerical --task "pca" --n 1000 --k 250 --train_dir "/mnt/data1/dump/rebuttal/run-roberta-large" --batch_size 20 --chunk_size 50 --num_power_iteration 10
 """
 import fire
 from ml_swissknife import utils
@@ -9,7 +9,7 @@ from ml_swissknife import utils
 def run_save_grads(num_train_epochs=60):
     commands = []
     for model_name_or_path in ("roberta-base", "roberta-large"):
-        output_dir = utils.join("/home/t-lc/dump/privlm", 'rebuttal', f'run-{model_name_or_path}')
+        output_dir = utils.join("/mnt/data1/dump/", 'rebuttal', f'run-{model_name_or_path}')
         command = f'''python -m classification.run_wrapper \
             --output_dir {output_dir} \
             --task_name "sst-2" \
@@ -39,7 +39,7 @@ def run_pca():
         --k 500 \
         --batch_size 40 \
         --chunk_size 50 \
-        --train_dir "/home/t-lc/dump/privlm/rebuttal/run-roberta-base" \
+        --train_dir "/mnt/data1/dump/rebuttal/run-roberta-base" \
         --num_power_iteration 10'
     commands.append(command)
 
@@ -47,7 +47,7 @@ def run_pca():
         --task "pca" \
         --n 2000 \
         --k 500 \
-        --train_dir "/home/t-lc/dump/privlm/rebuttal/run-roberta-large" \
+        --train_dir "/mnt/data1/dump/rebuttal/run-roberta-large" \
         --batch_size 20 \
         --chunk_size 25 \
         --num_power_iteration 10'
@@ -76,9 +76,9 @@ def run_retrain(
         for model_name_or_path in model_name_or_paths:
             for rank in ranks:
                 if model_name_or_path == "roberta-base":
-                    output_dir = f"/home/t-lc/dump/privlm/rebuttal/roberta_prompt_retrain_{rank}_{seed}/sst-2"
+                    output_dir = f"/mnt/data1/dump/rebuttal/roberta_prompt_retrain_{rank}_{seed}/sst-2"
                 else:
-                    output_dir = f"/home/t-lc/dump/privlm/rebuttal/roberta_prompt_large_retrain_{rank}_{seed}/sst-2"
+                    output_dir = f"/mnt/data1/dump/rebuttal/roberta_prompt_large_retrain_{rank}_{seed}/sst-2"
                 cmd = f'''python -m classification.run_wrapper \
                     --output_dir {output_dir} \
                     --task_name "sst-2" \
@@ -99,12 +99,12 @@ def run_retrain(
                     if model_name_or_path == "roberta-base":
                         cmd += (
                             f' --orthogonal_projection_path '
-                            f'"/home/t-lc/dump/privlm/rebuttal/run-roberta-base/orthproj/all/global_step_000010.pt"'
+                            f'"/mnt/data1/dump/rebuttal/run-roberta-base/orthproj/all/global_step_000010.pt"'
                         )
                     else:
                         cmd += (
                             f' --orthogonal_projection_path '
-                            f'"/home/t-lc/dump/privlm/rebuttal/run-roberta-large/orthproj/all/global_step_000004.pt"'
+                            f'"/mnt/data1/dump/rebuttal/run-roberta-large/orthproj/all/global_step_000004.pt"'
                         )
                     cmd += f' --orthogonal_projection_rank {rank}'
                 commands.append(cmd)

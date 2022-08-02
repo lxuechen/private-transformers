@@ -25,7 +25,7 @@ def plot1(
     Run on gvm.
     """
     # Roberta-large
-    # python -m classification.runs.rebuttal_plots_neurips_2022 --task "plot1" --ckpt_path "/home/t-lc/dump/privlm/rebuttal/run-roberta-large/orthproj/eigenvalues/global_step_000005.evals" --img_name "large" --k 100
+    # python -m classification.runs.rebuttal_plots_neurips_2022 --task "plot1" --ckpt_path "/mnt/data1/dump/rebuttal/run-roberta-large/orthproj/eigenvalues/global_step_000005.evals" --img_name "large" --k 100
     if img_name != "":
         img_name = f'-{img_name}'
 
@@ -87,7 +87,7 @@ def plot2(
     Run locally.
     """
     # Roberta-large
-    # python -m classification.runs.rebuttal_plots_neurips_2022 --task "plot2" --img_name "large" --base_dir "/home/t-lc/dump/privlm/rebuttal" --roberta_large True
+    # python -m classification.runs.rebuttal_plots_neurips_2022 --task "plot2" --img_name "large" --base_dir "/mnt/data1/dump/rebuttal" --roberta_large True
     if img_name != "":
         img_name = f'-{img_name}'
 
@@ -125,7 +125,7 @@ def plot2(
 
 def plot_all(**kwargs):
     # rebuttal roberta-base experiments.
-    # python -m classification.runs.rebuttal_plots_neurips_2022 --task "plot_all" --base_dir "/home/t-lc/dump/privlm/rebuttal" --ckpt_path "/home/t-lc/dump/privlm/rebuttal/run-roberta-base/orthproj/eigenvalues/global_step_000010.evals"
+    # python -m classification.runs.rebuttal_plots_neurips_2022 --task "plot_all" --base_dir "/mnt/data1/dump/rebuttal" --ckpt_path "/mnt/data1/dump/rebuttal/run-roberta-base/orthproj/eigenvalues/global_step_000010.evals"
     plot1(**kwargs)
     plot2(**kwargs)
 
