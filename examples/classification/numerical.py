@@ -390,26 +390,23 @@ def orthogonal_iteration(
     p = batch.size(1)
     k = min(k, p, n)
     eigenvectors = torch.randn(size=(p, k), dtype=dtype)  # This step will be very slow for large models.
-    orthogonalizer = _orthogonalize_v3
 
-    # err_abs, err_rel = _check_error_v2(
-    #     loader=loader, eigenvectors=eigenvectors, chunk_size=chunk_size,
-    #     device=device, disable_tqdm=disable_tqdm,
-    # )
-    # logging.warning(f"before iteration, abs error: {err_abs:.6f}, rel error: {err_rel:.6f}")
+    err_abs, err_rel = _check_error_v2(
+        loader=loader, eigenvectors=eigenvectors, chunk_size=chunk_size,
+        device=device, disable_tqdm=disable_tqdm,
+    )
+    logging.warning(f"before iteration, abs error: {err_abs:.6f}, rel error: {err_rel:.6f}")
 
     for global_step in tqdm.tqdm(range(1, num_power_iteration + 1), desc="power iteration", disable=disable_tqdm):
         matrix = _mem_saving_matmul_v2(
             loader=loader, eigenvectors=eigenvectors, chunk_size=chunk_size,
             device=device, disable_tqdm=disable_tqdm
         )
-        # TODO: add back!
-        # matrix = torch.zeros_like(eigenvectors)
-        # eigenvectors = orthogonalizer(
-        #     matrix=matrix, chunk_size_2=chunk_size_2,
-        #     device=device, disable_tqdm=disable_tqdm
-        # )  # (p, k).
-        eigenvalues = _eigenvectors_to_eigenvalues(
+        eigenvectors = _orthogonalize_v3(
+            matrix=matrix, chunk_size_2=chunk_size_2,
+            device=device, disable_tqdm=disable_tqdm
+        )  # (p, k).
+        eigenvalues = _eigenvectors_to_eigenvalues_v2(
             loader=loader, eigenvectors=eigenvectors, chunk_size=chunk_size,
             device=device, disable_tqdm=disable_tqdm
         )
