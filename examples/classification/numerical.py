@@ -179,14 +179,14 @@ def _eigenvectors_to_eigenvalues_v2(
 
     dens = [(chunk ** 2.).sum(dim=0) for chunk in evec_chunks]
     nums = [torch.zeros_like(den) for den in dens]
-    for (batch,) in tqdm.tqdm(loader, disable=disable_tqdm):
+    for (batch,) in tqdm.tqdm(loader, disable=disable_tqdm, desc="evec2eval"):
         for chunk_id, chunk in enumerate(evec_chunks):
-            batch = batch.to(chunk.device, non_blocking=True)
+            batch = batch.to(chunk.device)
             vec = batch @ chunk  # (nj, ki).
             nums[chunk_id] += (vec ** 2.).sum(dim=0)
-    return torch.cat(
-        tuple((num / den).cpu() for num, den in utils.zip_(nums, dens))
-    )
+    nums = [num.cpu() for num in nums]
+    dens = [den.cpu() for den in dens]
+    return torch.cat(nums) / torch.cat(dens)
 
 
 def _check_error(
@@ -486,6 +486,14 @@ def test_mem_saving_matmul_v2(n=1000, d=100):
     torch.testing.assert_allclose(matmul, matmul_expected)
 
 
+def try_mem_saving_matmul_v2(n=1000, d=int(50 * 10 ** 6), k=250):
+    features = torch.randn(n, d)
+    dataset = TensorDataset(features)
+    loader = DataLoader(dataset, batch_size=10, shuffle=False, drop_last=False)
+    Q = torch.randn(d, k)
+    matmul = _mem_saving_matmul_v2(loader, Q, disable_tqdm=True)
+
+
 def test__check_error_v2(n=1000, d=10, k=100):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     features = torch.randn(n, d)
@@ -513,6 +521,7 @@ def test__orthogonalize_v2():
 
 def test__orthogonalize_v3():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
     p, k, chunk_size_2 = 10000, 500, 10
     matrix = torch.randn(p, k)
 
@@ -522,13 +531,34 @@ def test__orthogonalize_v3():
     torch.testing.assert_close(out1, out2)
 
 
+def test__eigenvectors_to_eigenvalues_v2():
+    torch.set_default_dtype(torch.float64)
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    n, d, k = 100, 1000, 4
+    features = torch.randn(n, d)
+    dataset = TensorDataset(features)
+    loader = DataLoader(dataset, batch_size=100, shuffle=False, drop_last=False)
+    evecs = torch.randn(d, k)
+
+    out1 = _eigenvectors_to_eigenvalues(
+        loader=loader, eigenvectors=evecs, disable_tqdm=False, chunk_size=min(100, n), device=device
+    )
+    out2 = _eigenvectors_to_eigenvalues_v2(loader=loader, eigenvectors=evecs, disable_tqdm=False)
+    print(out1, out2)
+    torch.testing.assert_close(out1, out2)
+
+
 def main(task="pca", **kwargs):
     utils.runs_tasks(
         task=task,
         task_names=("pca", "test_orthogonal_iteration", "test_mem_saving_matmul", "test__orthogonalize_v2",
-                    "test__orthogonalize_v3", "test__check_error_v2", "test_mem_saving_matmul_v2"),
+                    "test__orthogonalize_v3", "test__check_error_v2", "test_mem_saving_matmul_v2",
+                    "test__eigenvectors_to_eigenvalues_v2", "try_mem_saving_matmul_v2"),
         task_callables=(pca, test_orthogonal_iteration, test_mem_saving_matmul, test__orthogonalize_v2,
-                        test__orthogonalize_v3, test__check_error_v2, test_mem_saving_matmul_v2),
+                        test__orthogonalize_v3, test__check_error_v2, test_mem_saving_matmul_v2,
+                        test__eigenvectors_to_eigenvalues_v2, try_mem_saving_matmul_v2),
         **kwargs,
     )
 
@@ -541,4 +571,6 @@ if __name__ == "__main__":
     # python -m classification.numerical --task "test__orthogonalize_v3"
     # python -m classification.numerical --task "test__check_error_v2"
     # python -m classification.numerical --task "test_mem_saving_matmul_v2"
+    # python -m classification.numerical --task "test__eigenvectors_to_eigenvalues_v2"
+    # python -m classification.numerical --task "try_mem_saving_matmul_v2"
     fire.Fire(main)

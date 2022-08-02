@@ -1,6 +1,6 @@
 """Run the following separately, since it's slow.
 
-python -m classification.numerical --task "pca" --n 2000 --k 500 --train_dir "/home/t-lc/dump/privlm/rebuttal/run-roberta-large" --batch_size 20 --chunk_size 50 --num_power_iteration 10
+python -m classification.numerical --task "pca" --n 1000 --k 250 --train_dir "/home/t-lc/dump/privlm/rebuttal/run-roberta-large" --batch_size 10 --chunk_size 50 --num_power_iteration 10
 """
 import fire
 from ml_swissknife import utils
