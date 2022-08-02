@@ -57,13 +57,28 @@ def run_pca():
     return commands
 
 
-def run_retrain(seeds=(42, 9008, 0), model_name_or_paths=("roberta-base",), run=True):
+def run_retrain(
+    # Setup for Roberta-base.
+    # seeds=(42, 9008, 0),
+    # model_name_or_paths=("roberta-base",),
+    # ranks=(10, 20, 50, 100, None),
+
+    # Setup for Roberta-large.
+    seeds=(42, 9008),
+    model_name_or_paths=("roberta-large",),
+    ranks=(10, 20, 100, None),
+
+    run=True,
+):
     # python -m classification.runs.rebuttal_neurips_2022 --task "run_retrain"
     commands = []
     for seed in seeds:
         for model_name_or_path in model_name_or_paths:
-            for rank in (10, 20, 50, 100, None):
-                output_dir = f"/home/t-lc/dump/privlm/rebuttal/roberta_prompt_retrain_{rank}_{seed}/sst-2"
+            for rank in ranks:
+                if model_name_or_path == "roberta-base":
+                    output_dir = f"/home/t-lc/dump/privlm/rebuttal/roberta_prompt_retrain_{rank}_{seed}/sst-2"
+                else:
+                    output_dir = f"/home/t-lc/dump/privlm/rebuttal/roberta_prompt_large_retrain_{rank}_{seed}/sst-2"
                 cmd = f'''python -m classification.run_wrapper \
                     --output_dir {output_dir} \
                     --task_name "sst-2" \
@@ -81,14 +96,20 @@ def run_retrain(seeds=(42, 9008, 0), model_name_or_paths=("roberta-base",), run=
                     --randomly_initialize "no" \
                     --seed {seed}'''
                 if rank is not None:
-                    cmd += (
-                        f' --orthogonal_projection_path '
-                        f'"/home/t-lc/dump/privlm/rebuttal/run-roberta-base/orthproj/all/global_step_000010.pt"'
-                    )
+                    if model_name_or_path == "roberta-base":
+                        cmd += (
+                            f' --orthogonal_projection_path '
+                            f'"/home/t-lc/dump/privlm/rebuttal/run-roberta-base/orthproj/all/global_step_000010.pt"'
+                        )
+                    else:
+                        cmd += (
+                            f' --orthogonal_projection_path '
+                            f'"/home/t-lc/dump/privlm/rebuttal/run-roberta-large/orthproj/all/global_step_000004.pt"'
+                        )
                     cmd += f' --orthogonal_projection_rank {rank}'
                 commands.append(cmd)
     if run:
-        utils.gpu_scheduler(commands=commands, excludeID=(0,), excludeUUID=(0,))
+        utils.gpu_scheduler(commands=commands, excludeID=(), excludeUUID=())
     return commands
 
 
