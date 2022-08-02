@@ -67,6 +67,7 @@ def _mem_saving_matmul(
     disable_tqdm: bool,
 ):
     """Compute AQ."""
+    # TODO: distributed compute.
     out = torch.zeros_like(eigenvectors)
     nsteps = int(math.ceil(eigenvectors.size(1) / chunk_size))
     for idx in tqdm.tqdm(range(nsteps), desc="matmul", disable=disable_tqdm):
@@ -125,6 +126,43 @@ def _check_error(
             start_idx = int(idx * chunk_size)
             chunk = eigenvectors[:, start_idx: start_idx + chunk_size].to(device)
             batch_rec += torch.mm(chunk, torch.mm(chunk.T, batch.T)).T
+
+        err_abs.append((batch - batch_rec).norm(2))
+        ref_abs.append(batch.norm(2))
+
+    ref_abs = torch.stack(ref_abs).norm(2)
+    err_abs = torch.stack(err_abs).norm(2)
+    err_rel = err_abs / ref_abs
+
+    return err_abs.item(), err_rel.item()
+
+
+def _check_error_v2(
+    loader: DataLoader,
+    eigenvectors: torch.Tensor,
+    disable_tqdm: bool,
+    **kwargs,
+):
+    num_cuda_devices = torch.cuda.device_count()
+    assert num_cuda_devices > 0, "v2 is only supported in distributed settings."
+    devices = tuple(range(num_cuda_devices))
+
+    ref_abs = []
+    err_abs = []
+    for (batch,) in tqdm.tqdm(loader, desc="check error", disable=disable_tqdm):
+        batch_recs = []
+        evec_chunks = torch.tensor_split(eigenvectors, len(devices), dim=1)
+        for evec_chunk, device in utils.zip_(evec_chunks, devices):
+            this_batch = batch.to(device)
+            evec_chunk = evec_chunk.to(device)
+            batch_recs.append(
+                torch.mm(evec_chunk, torch.mm(evec_chunk.T, this_batch.T)).T
+            )
+
+        batch_rec = batch_recs[0]
+        for this_batch_rec in batch_recs[1:]:
+            batch_rec += this_batch_rec.to(0)
+        batch = batch.to(0)
 
         err_abs.append((batch - batch_rec).norm(2))
         ref_abs.append(batch.norm(2))
@@ -271,7 +309,7 @@ def orthogonal_iteration(
     eigenvectors = torch.randn(size=(p, k), dtype=dtype)  # This step will be very slow for large models.
     orthogonalizer = _orthogonalize_v3
 
-    err_abs, err_rel = _check_error(
+    err_abs, err_rel = _check_error_v2(
         loader=loader, eigenvectors=eigenvectors, chunk_size=chunk_size,
         device=device, disable_tqdm=disable_tqdm,
     )
@@ -350,6 +388,20 @@ def test_mem_saving_matmul(n=100, d=10):
     torch.testing.assert_allclose(matmul, matmul_expected)
 
 
+def test__check_error_v2(n=1000, d=10, k=100):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    features = torch.randn(n, d)
+    dataset = TensorDataset(features)
+    loader = DataLoader(dataset, batch_size=100, shuffle=False, drop_last=False)
+
+    eigenvectors = torch.randn(d, k)
+    err1 = _check_error(loader=loader, eigenvectors=eigenvectors, chunk_size=10, device=device, disable_tqdm=False)
+    err2 = _check_error_v2(
+        loader=loader, eigenvectors=eigenvectors, chunk_size=10, disable_tqdm=False
+    )
+    torch.testing.assert_close(err1, err2)
+
+
 def test__orthogonalize_v2():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     p, k, chunk_size_2 = int(50 * 10 ** 6), 500, 10
@@ -376,9 +428,9 @@ def main(task="pca", **kwargs):
     utils.runs_tasks(
         task=task,
         task_names=("pca", "test_orthogonal_iteration", "test_mem_saving_matmul", "test__orthogonalize_v2",
-                    "test__orthogonalize_v3"),
+                    "test__orthogonalize_v3", "test__check_error_v2"),
         task_callables=(pca, test_orthogonal_iteration, test_mem_saving_matmul, test__orthogonalize_v2,
-                        test__orthogonalize_v3),
+                        test__orthogonalize_v3, test__check_error_v2),
         **kwargs,
     )
 
@@ -389,4 +441,5 @@ if __name__ == "__main__":
     # python -m classification.numerical --task "test_mem_saving_matmul"
     # python -m classification.numerical --task "test__orthogonalize_v2"
     # python -m classification.numerical --task "test__orthogonalize_v3"
+    # python -m classification.numerical --task "test__check_error_v2"
     fire.Fire(main)
