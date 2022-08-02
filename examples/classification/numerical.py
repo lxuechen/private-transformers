@@ -239,7 +239,6 @@ def orthogonal_iteration(
     chunk_size=100,
     chunk_size_2=10,
     eval_steps=5,
-    use_v2=False,
 ):
     """Simultaneous iteration for finding eigenvectors with the largest eigenvalues in absolute value.
 
@@ -270,7 +269,7 @@ def orthogonal_iteration(
     p = batch.size(1)
     k = min(k, p, n)
     eigenvectors = torch.randn(size=(p, k), dtype=dtype)  # This step will be very slow for large models.
-    orthogonalizer = _orthogonalize_v2 if use_v2 else _orthogonalize
+    orthogonalizer = _orthogonalize_v3
 
     err_abs, err_rel = _check_error(
         loader=loader, eigenvectors=eigenvectors, chunk_size=chunk_size,
