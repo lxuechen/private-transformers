@@ -15,11 +15,13 @@ python -m classification.spectral_analysis.geometric_median --img_dir <output_di
    here, so make sure you have enough diskspace! It's perhaps safe to reserve 500G~1T. The spectral analyses are very
    diskspace intensive. Note below `<model_name_or_path>` can be one of `distilroberta-base`, `roberta-base`
    , `roberta-large`.
+
    ```bash
    python -m classification.spectral_analysis.rebuttal_neurips_2022 --task "run_save_grads" \
     --train_dir <train_dir> \
     --model_name_or_path <model_name_or_path>
    ```
+
    2.2 Now run PCA with orthogonal iteration to extract top eigenvectors. The command below runs PCA based on 4k
    checkpoints (4k gradients stored along the trajectory), and extracts the top 1k eigenvalues and
    eigenvectors. `batch_size` can be set small to save memory (it affects distributed matmul). Note for
@@ -27,14 +29,17 @@ python -m classification.spectral_analysis.geometric_median --img_dir <output_di
    VRAM) for that experiment. The code is written in a
    way so that computation can be distributed across many GPUs on a single machine, and should be
    fast with enough accelerators. **`<train_dir>` below must be the same as in the previous command.**
+
    ```bash
-   python -m classification.spectral_analysis.rebuttal_neurips_2022 --task "run_pca" \
+   python -m classification.spectral_analysis.rebuttal_neurips_2022 \
+    --task "run_pca" \
     --train_dir <train_dir> \
     --n 4000 \
     --k 1000 \
     --num_power_iteration 10 \
     --batch_size 20
    ```
+
    2.3 For re-training in subspace, we need to specify to the command the place where the PCA results are stored in
    order to use those. The PCA results will be in `<train_dir>/orthproj/all/`. There will likely be a couple of
    checkpoints in this folder, each of which correspondes to a different iteration of the orthogonal iteration. Now run
@@ -42,6 +47,7 @@ python -m classification.spectral_analysis.geometric_median --img_dir <output_di
    following command. Note that below 1) `<output_dir>` should **not** be the same as `<train_dir>` to avoid
    overwriting previous PCA results, and 2) `<rank>` should be smaller than `k` from the previous command since it's the
    rank of the subspace.
+
     ```bash
     python -m classification.spectral_analysis.rebuttal_neurips_2022 --task "run_retrain_single" \
       --output_dir <output_dir> \
