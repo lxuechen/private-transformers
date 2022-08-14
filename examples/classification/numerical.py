@@ -295,7 +295,7 @@ def _orthogonalize_v3(matrix, device, disable_tqdm: bool, chunk_size_2=20):
             if head <= col_idx < tail:
                 offset = col_idx - head
                 return k, offset
-        raise ValueError("Should not reach here...")
+        assert False, "Internal error: Should not reach here!"
 
     def gram_schmidt_helper(col_, rest_):
         col_ = col_.to(rest_)
