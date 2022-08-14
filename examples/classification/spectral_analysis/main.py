@@ -7,23 +7,6 @@ from ml_swissknife import utils, numerical_distributed
 from torch.utils.data import DataLoader, TensorDataset
 
 
-def load_data(ckpts_dir, num_ckpts, start_index, batch_size):
-    all_ckpts = utils.all_ckpts(ckpts_dir, sort=True)[start_index:start_index + num_ckpts]
-    dataset = torch.stack([
-        torch.load(ckpt_path)["flat_grad"]
-        for ckpt_path in tqdm.tqdm(all_ckpts, desc="load data")
-    ])
-    dataset = TensorDataset(dataset)
-    loader = DataLoader(
-        dataset=dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        drop_last=False,
-        pin_memory=False,
-    )
-    return loader
-
-
 def pca(
     # Place where grads are stored and where results will be stored.
     train_dir="/mnt/disks/disk-2/dump/privlm/roberta/sst-2",
@@ -38,9 +21,16 @@ def pca(
     disable_tqdm=False,
 ):
     utils.manual_seed(seed)
-    grads_dir = utils.join(train_dir, 'grad_trajectory')
+
+    ckpt_dir = utils.join(train_dir, 'grad_trajectory')
     dump_dir = utils.join(train_dir, 'orthproj')
-    input_mat = load_data(ckpts_dir=grads_dir, num_ckpts=n, start_index=start_index, batch_size=batch_size)
+
+    all_ckpts = utils.all_ckpts(ckpt_dir, sort=True)
+    tgt_ckpts = all_ckpts[start_index:start_index + n]
+    dataset = torch.stack([
+        torch.load(ckpt_path)["flat_grad"] for ckpt_path in tqdm.tqdm(tgt_ckpts, desc="load data")
+    ])
+    input_mat = DataLoader(dataset=TensorDataset(dataset), batch_size=batch_size)
 
     def callback(global_step, eigenvalues, eigenvectors):
         if global_step % save_steps == 0:

@@ -1,109 +1,118 @@
 """Experiments ran pre- and post-rebuttals."""
+import logging
 import os
-
+from typing import Optional
 import fire
-from ml_swissknife import utils
+import torch
+import tqdm
+from ml_swissknife import utils, numerical_distributed
+from torch.utils.data import DataLoader, TensorDataset
 
 
-def run_save_grads(num_train_epochs=60):
-    commands = []
-    for model_name_or_path in ("roberta-base", "roberta-large"):
-        output_dir = utils.join("/mnt/data1/dump/", 'rebuttal', f'run-{model_name_or_path}')
-        command = f'''python -m classification.run_wrapper \
-            --output_dir {output_dir} \
-            --task_name "sst-2" \
-            --model_name_or_path "{model_name_or_path}" \
-            --attention_only "yes" \
-            --static_lm_head "yes" \
-            --num_train_epochs {num_train_epochs} \
-            --eval_spectrum "no" \
-            --non_private "no" \
-            --eval_steps 50 \
-            --randomly_initialize "no" \
-            --per_device_train_batch_size 25 \
-            --batch_size 1000 \
-            --clipping_mode "default" \
-            --store_grads "yes"'''
-        commands.append(command)
-    utils.gpu_scheduler(commands, excludeID=(0,), excludeUUID=(0,))
-    return commands
-
-
-def run_pca():
-    # python -m classification.spectral_analysis.rebuttal_neurips_2022 --task "run_pca"
-    command = 'python -m classification.spectral_analysis.main \
-        --task "pca" \
-        --n 2000 \
-        --k 500 \
-        --batch_size 40 \
-        --train_dir "/mnt/data1/dump/rebuttal/run-roberta-base" \
-        --num_power_iteration 10'
-    os.system(command)
-
-    command = 'python -m classification.spectral_analysis.main \
-        --task "pca" \
-        --n 2000 \
-        --k 500 \
-        --train_dir "/mnt/data1/dump/rebuttal/run-roberta-large" \
-        --batch_size 10 \
-        --num_power_iteration 10'
-    os.system(command)
-
-
-def run_retrain(
-    # Setup for Roberta-base.
-    # seeds=(42, 9008, 0),
-    # model_name_or_paths=("roberta-base",),
-    # ranks=(10, 20, 50, 100, None),
-
-    # Setup for Roberta-large.
-    seeds=(42, 9008),
-    model_name_or_paths=("roberta-large",),
-    ranks=(10, 20, 100, None),
-
-    run=True,
+def run_save_grads(
+    num_train_epochs=60,  # This amounts to 4k updates, roughly.
+    model_name_or_path="roberta-base",
+    output_dir=None,
+    per_device_train_batch_size=25,
 ):
-    # python -m classification.spectral_analysis.rebuttal_neurips_2022 --task "run_retrain"
-    commands = []
-    for seed in seeds:
-        for model_name_or_path in model_name_or_paths:
-            for rank in ranks:
-                if model_name_or_path == "roberta-base":
-                    output_dir = f"/mnt/data1/dump/rebuttal/roberta_prompt_retrain_{rank}_{seed}/sst-2"
-                else:
-                    output_dir = f"/mnt/data1/dump/rebuttal/roberta_prompt_large_retrain_{rank}_{seed}/sst-2"
-                cmd = f'''python -m classification.run_wrapper \
-                    --output_dir {output_dir} \
-                    --task_name "sst-2" \
-                    --model_name_or_path {model_name_or_path} \
-                    --few_shot_type "prompt" \
-                    --attention_only "yes" \
-                    --static_lm_head "yes" \
-                    --per_device_train_batch_size 25 \
-                    --batch_size 1000 \
-                    --clipping_mode "default" \
-                    --num_train_epochs 4 \
-                    --eval_spectrum "no" \
-                    --non_private "no" \
-                    --eval_steps 25 \
-                    --randomly_initialize "no" \
-                    --seed {seed}'''
-                if rank is not None:
-                    if model_name_or_path == "roberta-base":
-                        cmd += (
-                            f' --orthogonal_projection_path '
-                            f'"/mnt/data1/dump/rebuttal/run-roberta-base/orthproj/all/global_step_000010.pt"'
-                        )
-                    else:
-                        cmd += (
-                            f' --orthogonal_projection_path '
-                            f'"/mnt/data1/dump/rebuttal/run-roberta-large/orthproj/all/global_step_000004.pt"'
-                        )
-                    cmd += f' --orthogonal_projection_rank {rank}'
-                commands.append(cmd)
-    if run:
-        utils.gpu_scheduler(commands=commands, excludeID=(), excludeUUID=())
-    return commands
+    if output_dir is None:
+        output_dir = utils.join("/mnt/data1/dump/", 'rebuttal_v2', f'run-{model_name_or_path}')
+    command = f'''python -m classification.run_wrapper \
+        --output_dir {output_dir} \
+        --task_name "sst-2" \
+        --model_name_or_path "{model_name_or_path}" \
+        --attention_only "yes" \
+        --static_lm_head "yes" \
+        --num_train_epochs {num_train_epochs} \
+        --eval_spectrum "no" \
+        --non_private "no" \
+        --eval_steps 50 \
+        --randomly_initialize "no" \
+        --per_device_train_batch_size {per_device_train_batch_size} \
+        --batch_size 1000 \
+        --clipping_mode "default" \
+        --store_grads "yes"'''
+    os.system(command)
+
+
+def run_pca(
+    # Place where grads are stored and where results will be stored.
+    train_dir="/mnt/disks/disk-2/dump/privlm/roberta/sst-2",
+    n=2000,  # How many checkpoints?
+    k=1000,  # How many eigenvectors?
+    num_power_iteration=10,
+    batch_size=20,  # Batch size for processing the checkpoints in matmul.
+    seed=42,  # Controls randomness in sampling the first vector in orthogonal iteration.
+    start_index=0,  # The index of the first checkpoint to be selected.
+    eval_steps=5,  # Evaluate PCA accuracy once this many iterations.
+    save_steps=5,  # Save eigenvalue and eigenvector tensors once this many iterations.
+    disable_tqdm=False,
+):
+    utils.manual_seed(seed)
+
+    ckpt_dir = utils.join(train_dir, 'grad_trajectory')
+    dump_dir = utils.join(train_dir, 'orthproj')
+
+    all_ckpts = utils.all_ckpts(ckpt_dir, sort=True)
+    tgt_ckpts = all_ckpts[start_index:start_index + n]
+    dataset = torch.stack([
+        torch.load(ckpt_path)["flat_grad"] for ckpt_path in tqdm.tqdm(tgt_ckpts, desc="load data")
+    ])
+    input_mat = DataLoader(dataset=TensorDataset(dataset), batch_size=batch_size)
+
+    def callback(global_step, eigenvalues, eigenvectors):
+        if global_step % save_steps == 0:
+            utils.tsave(
+                dict(eigenvalues=eigenvalues, eigenvectors=eigenvectors),
+                utils.join(dump_dir, "all", f"global_step_{global_step:06d}.pt")
+            )
+            utils.tsave(
+                dict(eigenvalues=eigenvalues),
+                utils.join(dump_dir, "eigenvalues", f"global_step_{global_step:06d}.evals")
+            )
+        if global_step % eval_steps == 0:
+            err_abs, err_rel = numerical_distributed.check_error(
+                input_mat=input_mat, eigenvectors=eigenvectors, disable_tqdm=disable_tqdm
+            )
+            logging.warning(f"global_step: {global_step}, abs error: {err_abs:.6f}, rel error: {err_rel:.6f}")
+
+    numerical_distributed.orthogonal_iteration(
+        input_mat=input_mat,
+        k=k,
+        num_power_iteration=num_power_iteration,
+        dtype=torch.get_default_dtype(),
+        callback=callback,
+        disable_tqdm=disable_tqdm,
+    )
+
+
+def run_retrain_single(
+    output_dir: str,
+    orthogonal_projection_path: str,
+    model_name_or_path: str,
+    rank: Optional[int] = None,
+    seed=42,
+):
+    cmd = f'''python -m classification.run_wrapper \
+        --output_dir {output_dir} \
+        --task_name "sst-2" \
+        --model_name_or_path {model_name_or_path} \
+        --few_shot_type "prompt" \
+        --attention_only "yes" \
+        --static_lm_head "yes" \
+        --per_device_train_batch_size 25 \
+        --batch_size 1000 \
+        --clipping_mode "default" \
+        --num_train_epochs 4 \
+        --eval_spectrum "no" \
+        --non_private "no" \
+        --eval_steps 25 \
+        --randomly_initialize "no" \
+        --seed {seed} \
+        --orthogonal_projection_path {orthogonal_projection_path}'''
+    if rank is not None:
+        cmd += f' --orthogonal_projection_rank {rank}'
+    os.system(cmd)
 
 
 def main(task, **kwargs):
