@@ -12,13 +12,13 @@ from torch.utils.data import DataLoader, TensorDataset
 def run_save_grads(
     num_train_epochs=60,  # This amounts to 4k updates, roughly.
     model_name_or_path="roberta-base",
-    output_dir=None,
+    train_dir=None,
     per_device_train_batch_size=25,
 ):
-    if output_dir is None:
-        output_dir = utils.join("/mnt/data1/dump/", 'rebuttal_v2', f'run-{model_name_or_path}')
+    if train_dir is None:
+        train_dir = utils.join("/mnt/data1/dump/", 'rebuttal_v2', f'run-{model_name_or_path}')
     command = f'''python -m classification.run_wrapper \
-        --output_dir {output_dir} \
+        --output_dir {train_dir} \
         --task_name "sst-2" \
         --model_name_or_path "{model_name_or_path}" \
         --attention_only "yes" \

@@ -17,7 +17,8 @@ python -m classification.spectral_analysis.geometric_median --img_dir <output_di
    , `roberta-large`.
 
    ```bash
-   python -m classification.spectral_analysis.rebuttal_neurips_2022 --task "run_save_grads" \
+   python -m classification.spectral_analysis.rebuttal_neurips_2022 \
+    --task "run_save_grads" \
     --train_dir <train_dir> \
     --model_name_or_path <model_name_or_path>
    ```
@@ -49,7 +50,8 @@ python -m classification.spectral_analysis.geometric_median --img_dir <output_di
    rank of the subspace.
 
     ```bash
-    python -m classification.spectral_analysis.rebuttal_neurips_2022 --task "run_retrain_single" \
+    python -m classification.spectral_analysis.rebuttal_neurips_2022 \
+      --task "run_retrain_single" \
       --output_dir <output_dir> \
       --orthogonal_projection_path "<train_dir>/orthproj/all/global_step_x.pt" \
       --rank <rank> \
