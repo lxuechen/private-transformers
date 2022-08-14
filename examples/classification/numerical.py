@@ -5,14 +5,14 @@ Currently, only contains simultaneous iter.
 """
 import logging
 import math
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 import fire
 import numpy as np
 import torch
 import tqdm
 from ml_swissknife import utils
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, TensorDataset, Dataset
 
 
 def load_data(ckpts_dir, num_ckpts, start_index, batch_size):
@@ -48,7 +48,7 @@ def pca(
     dump_dir = utils.join(train_dir, 'orthproj')
 
     orthogonal_iteration(
-        loader=load_data(ckpts_dir=grads_dir, num_ckpts=n, start_index=start_index, batch_size=batch_size),
+        input_mat=load_data(ckpts_dir=grads_dir, num_ckpts=n, start_index=start_index, batch_size=batch_size),
         k=k,
         num_power_iteration=num_power_iteration,
         device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
@@ -79,33 +79,6 @@ def _mem_saving_matmul(
         out[:, start_idx:start_idx + chunk_size] = this_out.cpu()
     return out
 
-
-# def _mem_saving_matmul_v2(
-#     loader: DataLoader,
-#     eigenvectors: torch.Tensor,
-#     disable_tqdm: bool,
-#     **kwargs,
-# ):
-#     num_cuda_devices = torch.cuda.device_count()
-#     assert num_cuda_devices > 0, "v2 is only supported in distributed settings."
-#     devices = tuple(range(num_cuda_devices))
-#
-#     out = torch.zeros_like(eigenvectors)
-#
-#     evec_chunks = torch.tensor_split(eigenvectors, len(devices), dim=1)
-#     evec_chunks = tuple(evec_chunk.to(device) for evec_chunk, device in utils.zip_(evec_chunks, devices))
-#
-#     chunk_num_cols = (0,) + tuple(evec_chunk.size(1) for evec_chunk in evec_chunks)
-#     chunk_num_cols_cumsum = np.cumsum(chunk_num_cols)
-#     chunk_col_ranges = tuple(utils.zip_(chunk_num_cols_cumsum[:-1], chunk_num_cols_cumsum[1:]))
-#
-#     for chunk, chunk_col_range in utils.zip_(evec_chunks, chunk_col_ranges):
-#         this_out = torch.zeros(size=chunk.size())  # GPU. (p, k1).
-#         for (batch,) in tqdm.tqdm(loader, desc="batches", disable=disable_tqdm):
-#             batch = batch.to(chunk.device, non_blocking=True)
-#             this_out += torch.mm(batch.T, torch.mm(batch, chunk)).cpu()
-#         out[:, chunk_col_range[0]:chunk_col_range[1]] = this_out.cpu()
-#     return out
 
 def _mem_saving_matmul_v2(
     loader: DataLoader,
@@ -351,13 +324,14 @@ def _orthogonalize_v3(matrix, device, disable_tqdm: bool, chunk_size_2=20):
 
 
 def orthogonal_iteration(
-    loader: DataLoader,
+    input_mat: Union[DataLoader, Dataset, torch.Tensor],
     k: int,
     num_power_iteration=1,
     disable_tqdm=False,
     dtype=torch.float,
     device: Optional[torch.device] = None,
     dump_dir=None,
+    dim0_chunk_size=10,
     chunk_size=100,
     chunk_size_2=10,
     eval_steps=5,
@@ -370,13 +344,14 @@ def orthogonal_iteration(
         - good reconstruction of the data does not imply converged eigenvalues!
 
     Args:
-        loader: Dataloader to incrementally load in flat gradients.
+        input_mat: DataLoader or Dataset or torch.Tensor as data. Always assumes batch first.
         k: Number of principal components to return.
         num_power_iteration: Number of power iterations.
         disable_tqdm: If True, disable progress bar.
         device: torch.device; defaults to CPU if None.
         dump_dir: Directory to dump the sequence of results.
         dtype: Precision in string format.
+        dim0_chunk_size: Size of chunks for dim0 -- the batch dimension of input_mat.
         chunk_size: Size of chunks for processing the dimension that loops over eigenvectors.
         chunk_size_2: Size of chunks for orthogonalization.
         eval_steps: Number of steps before a data reconstruction evaluation.
@@ -385,7 +360,24 @@ def orthogonal_iteration(
         eigenvectors: Tensor of selected basis of size (p, k).
         eigenvalues: Tensor of eigenvalues of data.T @ data of size (k,).
     """
-    # TODO: Create data loader here!
+    if isinstance(input_mat, torch.Tensor):
+        input_mat = TensorDataset(input_mat)
+    if isinstance(input_mat, Dataset):
+        loader = DataLoader(
+            dataset=input_mat,
+            batch_size=dim0_chunk_size,
+            shuffle=False,
+            drop_last=False,
+            pin_memory=False,
+        )
+    elif isinstance(input_mat, DataLoader):
+        loader = input_mat
+    else:
+        raise ValueError(
+            f"Expected `input_mat` to be of type `torch.utils.data.DataLoader` or `torch.Tensor`, "
+            f"but found type={type(input_mat)}"
+        )
+
     n = sum(batch.size(0) for batch, in loader)
     batch, = next(iter(loader))
     p = batch.size(1)
@@ -440,7 +432,7 @@ def test_orthogonal_iteration(n=100, d=20, k=10):
     loader = DataLoader(dataset, batch_size=10, shuffle=False, drop_last=False)
 
     eigenvalues, eigenvectors = orthogonal_iteration(
-        loader=loader,
+        input_mat=loader,
         k=k,
         num_power_iteration=100,
         device=torch.device("cuda" if torch.cuda.is_available() else 'cpu'),
