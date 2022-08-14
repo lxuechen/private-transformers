@@ -10,6 +10,7 @@ python -m classification.spectral_analysis.geometric_median --img_dir <output_di
 ```
 
 2. Spectral analysis.
+
    2.1 To reproduce the spectral analysis experiments, one first need a first round of fine-tuning to collect gradients.
    Run the following command with `<train_dir>` of your choice. Note everything down the line about PCA will be stored
    here, so make sure you have enough diskspace! It's perhaps safe to reserve 500G~1T. The spectral analyses are very
@@ -17,7 +18,7 @@ python -m classification.spectral_analysis.geometric_median --img_dir <output_di
    , `roberta-large`.
 
    ```bash
-   python -m classification.spectral_analysis.rebuttal_neurips_2022 \
+   CUDA_VISIBLE_DEVICES=0 python -m classification.spectral_analysis.rebuttal_neurips_2022 \
     --task "run_save_grads" \
     --train_dir <train_dir> \
     --model_name_or_path <model_name_or_path>
@@ -50,7 +51,7 @@ python -m classification.spectral_analysis.geometric_median --img_dir <output_di
    rank of the subspace.
 
     ```bash
-    python -m classification.spectral_analysis.rebuttal_neurips_2022 \
+    CUDA_VISIBLE_DEVICES=0 python -m classification.spectral_analysis.rebuttal_neurips_2022 \
       --task "run_retrain_single" \
       --output_dir <output_dir> \
       --orthogonal_projection_path "<train_dir>/orthproj/all/global_step_x.pt" \
