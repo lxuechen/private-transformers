@@ -1,7 +1,6 @@
-"""Run the following separately, since it's slow.
+"""Experiments ran pre- and post-rebuttals."""
+import os
 
-python -m classification.numerical --task "pca" --n 1000 --k 250 --train_dir "/mnt/data1/dump/rebuttal/run-roberta-large" --batch_size 20 --chunk_size 50 --num_power_iteration 10
-"""
 import fire
 from ml_swissknife import utils
 
@@ -31,30 +30,24 @@ def run_save_grads(num_train_epochs=60):
 
 
 def run_pca():
-    # python -m classification.runs.rebuttal_neurips_2022 --task "run_pca"
-    commands = []
-    command = 'python -m classification.numerical \
+    # python -m classification.spectral_analysis.rebuttal_neurips_2022 --task "run_pca"
+    command = 'python -m classification.spectral_analysis.main \
         --task "pca" \
         --n 2000 \
         --k 500 \
         --batch_size 40 \
-        --chunk_size 50 \
         --train_dir "/mnt/data1/dump/rebuttal/run-roberta-base" \
         --num_power_iteration 10'
-    commands.append(command)
+    os.system(command)
 
-    command = 'python -m classification.numerical \
+    command = 'python -m classification.spectral_analysis.main \
         --task "pca" \
         --n 2000 \
         --k 500 \
         --train_dir "/mnt/data1/dump/rebuttal/run-roberta-large" \
-        --batch_size 20 \
-        --chunk_size 25 \
+        --batch_size 10 \
         --num_power_iteration 10'
-    commands.append(command)
-
-    utils.gpu_scheduler(commands, excludeID=(0,), log=False)
-    return commands
+    os.system(command)
 
 
 def run_retrain(
@@ -70,7 +63,7 @@ def run_retrain(
 
     run=True,
 ):
-    # python -m classification.runs.rebuttal_neurips_2022 --task "run_retrain"
+    # python -m classification.spectral_analysis.rebuttal_neurips_2022 --task "run_retrain"
     commands = []
     for seed in seeds:
         for model_name_or_path in model_name_or_paths:
@@ -113,12 +106,8 @@ def run_retrain(
     return commands
 
 
-def main(task):
-    utils.runs_tasks(
-        task=task,
-        task_names=("run_pca", "run_retrain", "run_save_grads"),
-        task_callables=(run_pca, run_retrain, run_save_grads)
-    )
+def main(task, **kwargs):
+    globals()[task](**kwargs)
 
 
 if __name__ == "__main__":
