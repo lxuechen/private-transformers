@@ -1,7 +1,7 @@
 """
 Toy example on geometric median estimation in the paper.
 
-CUDA_VISIBLE_DEVICES=3 python geometric_median.py --img_dir "/mnt/disks/disk-2/dump/spectrum/geometric_median"
+python geometric_median.py --img_dir "/mnt/disks/disk-2/dump/spectrum/geometric_median"
 """
 import dataclasses
 import logging
