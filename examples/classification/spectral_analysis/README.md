@@ -11,7 +11,8 @@ python -m classification.spectral_analysis.geometric_median --img_dir <output_di
 
 2. Spectral analysis.
 
-   2.1 To reproduce the spectral analysis experiments, one first need a first round of fine-tuning to collect gradients.
+   2.1. To reproduce the spectral analysis experiments, one first need a first round of fine-tuning to collect
+   gradients.
    Run the following command with `<train_dir>` of your choice. Note everything down the line about PCA will be stored
    here, so make sure you have enough diskspace! It's perhaps safe to reserve 500G~1T. The spectral analyses are very
    diskspace intensive. Note below `<model_name_or_path>` can be one of `distilroberta-base`, `roberta-base`
@@ -24,7 +25,7 @@ python -m classification.spectral_analysis.geometric_median --img_dir <output_di
     --model_name_or_path <model_name_or_path>
    ```
 
-   2.2 Now run PCA with orthogonal iteration to extract top eigenvectors. The command below runs PCA based on 4k
+   2.2. Now run PCA with orthogonal iteration to extract top eigenvectors. The command below runs PCA based on 4k
    checkpoints (4k gradients stored along the trajectory), and extracts the top 1k eigenvalues and
    eigenvectors. `batch_size` can be set small to save memory (it affects distributed matmul). Note for
    the `roberta-large` experiment, you would likely need several GPUs. For reference, I used 4 A6000 (each with 48G
@@ -42,7 +43,7 @@ python -m classification.spectral_analysis.geometric_median --img_dir <output_di
     --batch_size 20
    ```
 
-   2.3 For re-training in subspace, we need to specify to the command the place where the PCA results are stored in
+   2.3. For re-training in subspace, we need to specify to the command the place where the PCA results are stored in
    order to use those. The PCA results will be in `<train_dir>/orthproj/all/`. There will likely be a couple of
    checkpoints in this folder, each of which correspondes to a different iteration of the orthogonal iteration. Now run
    the
