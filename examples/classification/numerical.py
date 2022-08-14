@@ -423,8 +423,7 @@ def orthogonal_iteration(
             )
 
         if global_step % eval_steps == 0:
-            # TODO: Should also use v2
-            err_abs, err_rel = _check_error(
+            err_abs, err_rel = _check_error_v2(
                 loader=loader, eigenvectors=eigenvectors, chunk_size=chunk_size,
                 device=device, disable_tqdm=disable_tqdm,
             )
@@ -530,24 +529,6 @@ def test__orthogonalize_v3():
     torch.testing.assert_close(out1, out2)
 
 
-def test__eigenvectors_to_eigenvalues():
-    torch.set_default_dtype(torch.float64)
-
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    n, d, k, bsz = 100, 1000, 10, 10
-    features = torch.randn(n, d)
-    symmat = features.T @ features
-    dataset = TensorDataset(features)
-    loader = DataLoader(dataset, batch_size=bsz, shuffle=False, drop_last=False)
-
-    evals_true, evecs_true = torch.linalg.eigh(symmat)  # Ground truth.
-    top_evecs, top_evals = evecs_true[:, -k:], evals_true[-k:]
-    out = _eigenvectors_to_eigenvalues(
-        loader=loader, eigenvectors=top_evecs, chunk_size=bsz, device=device, disable_tqdm=False
-    )
-    torch.testing.assert_allclose(out, top_evals)
-
-
 def test__eigenvectors_to_eigenvalues_v2():
     torch.set_default_dtype(torch.float64)
 
@@ -585,5 +566,4 @@ if __name__ == "__main__":
     # python -m classification.numerical --task "try_mem_saving_matmul_v2"
 
     # CUDA_VISIBLE_DEVICES=2,3 python -m classification.numerical --task "test__eigenvectors_to_eigenvalues_v2"
-    # CUDA_VISIBLE_DEVICES=2,3 python -m classification.numerical --task "test__eigenvectors_to_eigenvalues"
     fire.Fire(main)
