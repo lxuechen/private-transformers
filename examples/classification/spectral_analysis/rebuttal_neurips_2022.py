@@ -2,6 +2,7 @@
 import logging
 import os
 from typing import Optional
+
 import fire
 import torch
 import tqdm
@@ -47,6 +48,7 @@ def run_pca(
     eval_steps=5,  # Evaluate PCA accuracy once this many iterations.
     save_steps=5,  # Save eigenvalue and eigenvector tensors once this many iterations.
     disable_tqdm=False,
+    dtype="float",  # String repr of dtype.
 ):
     utils.manual_seed(seed)
 
@@ -57,7 +59,7 @@ def run_pca(
     tgt_ckpts = all_ckpts[start_index:start_index + n]
     dataset = torch.stack([
         torch.load(ckpt_path)["flat_grad"] for ckpt_path in tqdm.tqdm(tgt_ckpts, desc="load data")
-    ])
+    ]).to(utils.get_dtype(dtype))
     input_mat = DataLoader(dataset=TensorDataset(dataset), batch_size=batch_size)
 
     def callback(global_step, eigenvalues, eigenvectors):
@@ -80,7 +82,6 @@ def run_pca(
         input_mat=input_mat,
         k=k,
         num_power_iteration=num_power_iteration,
-        dtype=torch.get_default_dtype(),
         callback=callback,
         disable_tqdm=disable_tqdm,
     )
