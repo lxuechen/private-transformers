@@ -59,3 +59,19 @@ python -m classification.spectral_analysis.geometric_median --img_dir <output_di
       --rank <rank> \
       --model_name_or_path <model_name_or_path>
     ```
+
+## Citation
+
+If you found this codebase useful in your research, please consider citing:
+
+```@misc{li2022when,
+  doi = {10.48550/ARXIV.2207.00160},
+  url = {https://arxiv.org/abs/2207.00160},
+  author = {Li, Xuechen and Liu, Daogao and Hashimoto, Tatsunori and Inan, Huseyin A. and Kulkarni, Janardhan and Lee, Yin Tat and Thakurta, Abhradeep Guha},
+  keywords = {Machine Learning (cs.LG), Cryptography and Security (cs.CR), Machine Learning (stat.ML), FOS: Computer and information sciences, FOS: Computer and information sciences},
+  title = {When Does Differentially Private Learning Not Suffer in High Dimensions?},
+  publisher = {arXiv},
+  year = {2022},
+  copyright = {Creative Commons Attribution 4.0 International}
+}
+```
