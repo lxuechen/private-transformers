@@ -240,7 +240,7 @@ class DynamicDataTrainingArguments(DataTrainingArguments):
         default=False,
         metadata={"help": "Whether to use prompt-based fine-tuning"}
     )
-    template_list: list = field(
+    template_list: tuple = field(
         default=None,
         metadata={"help": "(DO NOT List of templates (only initialized after the program starts."}
     )
@@ -693,6 +693,7 @@ def main():
             target_delta=privacy_args.target_delta,
             accounting_mode=privacy_args.accounting_mode,
             clipping_mode=privacy_args.clipping_mode,
+            skip_checks=True,
         )
         # Originally, it could have been null.
         privacy_args.noise_multiplier = privacy_engine.noise_multiplier

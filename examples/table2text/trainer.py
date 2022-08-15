@@ -397,7 +397,7 @@ class Trainer:
                 Pt_flat_g = torch.matmul(P.t(), flat_grad)  # noqa
                 # Matrix multiplication with very large dimension (millions in this case) results in weird issues.
                 # In this case, `torch.matmul` fails due to calling some algo. Resorting to `torch.mm` for now.
-                flat_grad = torch.mm(orthogonal_projection, Pt_flat_g[:, None]).squeeze()
+                flat_grad = torch.mm(P, Pt_flat_g[:, None]).squeeze()
 
                 # Redistribute.
                 grads = utils.flat_to_shape(flat_tensor=flat_grad, shapes=[param.shape for _, param in named_params])
@@ -498,6 +498,7 @@ class Trainer:
                             def callback(privacy_engine):
                                 named_params = privacy_engine.named_params
                                 flat_grad = torch.cat([param.summed_grad.flatten() for _, param in named_params])
+                                flat_grad.div_(privacy_engine.batch_size)
                                 torch.save(
                                     {"flat_grad": flat_grad.cpu().float()},
                                     utils.join(store_grads_dir, f'global_step_{self.global_step:06d}.ckpt')
