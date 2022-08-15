@@ -178,11 +178,11 @@ If you found this codebase useful in your research, please consider citing:
 
 ```
 @inproceedings{
-li2022large,
-title={Large Language Models Can Be Strong Differentially Private Learners},
-author={Xuechen Li and Florian Tramer and Percy Liang and Tatsunori Hashimoto},
-booktitle={International Conference on Learning Representations},
-year={2022},
-url={https://openreview.net/forum?id=bVuP3ltATMz}
+  li2022large,
+  title={Large Language Models Can Be Strong Differentially Private Learners},
+  author={Xuechen Li and Florian Tramer and Percy Liang and Tatsunori Hashimoto},
+  booktitle={International Conference on Learning Representations},
+  year={2022},
+  url={https://openreview.net/forum?id=bVuP3ltATMz}
 }
 ```
