@@ -185,4 +185,14 @@ If you found this codebase useful in your research, please consider citing:
   year={2022},
   url={https://openreview.net/forum?id=bVuP3ltATMz}
 }
+
+@inproceedings{
+  li2022when,
+  title={When Does Differentially Private Learning Not Suffer in High Dimensions?},
+  author={Xuechen Li and Daogao Liu and Tatsunori Hashimoto and Huseyin A Inan and Janardhan Kulkarni and YinTat Lee and Abhradeep Guha Thakurta},
+  booktitle={Advances in Neural Information Processing Systems},
+  editor={Alice H. Oh and Alekh Agarwal and Danielle Belgrave and Kyunghyun Cho},
+  year={2022},
+  url={https://openreview.net/forum?id=FR--mkQu0dw}
+}
 ```
