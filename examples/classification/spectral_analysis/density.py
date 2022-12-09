@@ -1,5 +1,4 @@
-# Shameless copy from https://github.com/google/spectral-density/blob/f0d3f1446bb1c200d9200cbdc67407e3f148ccba/jax/density.py#L120
-
+# Copyright (c) Xuechen Li. All Rights Reserved.
 # Copyright 2019 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
